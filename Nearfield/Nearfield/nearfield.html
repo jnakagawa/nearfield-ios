@@ -43,14 +43,16 @@
         .container {
             max-width: 600px;
             margin: 0 auto;
-            padding: 12px 16px calc(env(safe-area-inset-bottom) + 64px);
+            padding: env(safe-area-inset-top, 12px) 16px calc(env(safe-area-inset-bottom) + 16px);
             display: flex;
             flex-direction: column;
             align-items: center;
+            justify-content: center;
             height: 100vh;
             height: 100dvh;
             box-sizing: border-box;
             overflow: hidden;
+            gap: 8px;
         }
 
         h1 {
@@ -82,11 +84,11 @@
 
         /* 3D Scene Container */
         .scene-container {
-            width: min(280px, 52vw);
-            height: min(280px, 52vw);
+            width: min(220px, 52vw);
+            height: min(220px, 52vw);
             position: relative;
-            margin: 6px 0;
-            flex-shrink: 1;
+            margin: 0;
+            flex-shrink: 0;
             border-radius: 50%;
             overflow: hidden;
             background: radial-gradient(circle at 30% 30%, var(--scene-start), var(--scene-end));
@@ -311,8 +313,8 @@
             display: flex;
             justify-content: space-between;
             width: 100%;
-            max-width: 280px;
-            margin: 15px 0;
+            max-width: 320px;
+            margin: 0;
             font-family: monospace;
             transition: opacity 0.35s ease, transform 0.35s ease;
         }
@@ -516,12 +518,12 @@
         /* Note display */
         .note-display {
             text-align: center;
-            margin: 4px 0;
+            margin: 0;
             transition: opacity 0.35s ease, transform 0.35s ease;
         }
 
         .my-note {
-            font-size: 3rem;
+            font-size: 2.2rem;
             font-weight: 200;
             color: #4a9eff;
             transition: color 0.35s ease, text-shadow 0.35s ease;
@@ -559,20 +561,27 @@
 
         /* Play button */
         .play-button {
-            width: 100px;
-            height: 100px;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 72px;
+            height: 72px;
             border-radius: 50%;
             background: linear-gradient(145deg, #1a1a24, #12121a);
             border: 2px solid #2a2a3a;
             color: #4a9eff;
-            font-size: 0.9rem;
+            font-size: 0.75rem;
             cursor: pointer;
-            transition: all 0.3s;
             display: flex;
             align-items: center;
             justify-content: center;
-            margin: 8px 0;
-            transition: all 0.3s, transform 0.35s ease, box-shadow 0.35s ease;
+            z-index: 5;
+            transition: all 0.3s, transform 0.3s ease, box-shadow 0.35s ease;
+        }
+
+        .play-button:active {
+            transform: translate(-50%, -50%) scale(0.92);
         }
 
         .play-button.playing {
@@ -638,36 +647,62 @@
             }
         }
 
-        /* Note selector */
+        /* Radar + notes composite */
+        .radar-orbit-wrapper {
+            position: relative;
+            width: min(340px, 84vw);
+            height: min(340px, 84vw);
+            flex-shrink: 0;
+            margin-top: -20px;
+        }
+
+        .radar-orbit-wrapper .scene-container {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        /* Note selector — orbiting ring */
         .note-selector {
-            display: flex;
-            gap: 6px;
-            flex-wrap: wrap;
-            justify-content: center;
-            margin: 4px 0;
-            max-width: 320px;
-            transition: opacity 0.35s ease, transform 0.35s ease;
+            position: absolute;
+            inset: 0;
+            transition: opacity 0.35s ease;
         }
 
         body.grainfield-active .note-selector {
-            display: none;
+            opacity: 0;
+            pointer-events: none;
         }
 
         .note-btn {
-            width: 42px;
-            height: 42px;
-            border-radius: 8px;
-            background: #1a1a24;
-            border: 1px solid #2a2a3a;
-            color: #888;
-            font-size: 0.85rem;
+            position: absolute;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: rgba(20, 22, 32, 0.85);
+            border: 1.5px solid rgba(74, 158, 255, 0.18);
+            color: rgba(180, 200, 230, 0.75);
+            font-size: 0.88rem;
+            font-weight: 500;
             cursor: pointer;
+            transition: all 0.25s ease;
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            /* positions set by JS */
+        }
+
+        .note-btn:active {
+            transform: scale(0.88);
         }
 
         .note-btn.selected {
-            background: #4a9eff;
-            border-color: #4a9eff;
+            background: rgba(74, 158, 255, 0.85);
+            border-color: rgba(100, 180, 255, 0.9);
             color: #fff;
+            box-shadow: 0 0 22px rgba(74, 158, 255, 0.35);
         }
 
         /* Status */
@@ -830,27 +865,31 @@
     <div class="debug-overlay" id="debugOverlay"></div>
 
     <div class="container">
-        <h1>Nearfield</h1>
-        <p class="subtitle" id="modeSubtitle">Tilt to detune / Get closer for harmonics</p>
+        <h1 style="display:none">Nearfield</h1>
+        <p class="subtitle" id="modeSubtitle" style="display:none">Tilt to detune / Get closer for harmonics</p>
 
-        <div class="scene-container" id="sceneContainer">
-            <div class="ambient-glow" id="ambientGlow"></div>
-            <div class="peer-label-layer" id="peerLabelLayer"></div>
-            <div class="scene-hud">
-                <div class="stream-indicator" id="streamIndicator">Mic capture idle</div>
-                <div class="tilt-crosshair"></div>
-                <div class="tilt-orb" id="tiltOrb"></div>
-                <div class="tilt-readout">
-                    <div class="tilt-readout-chip">
-                        <span class="tilt-readout-label">Filter</span>
-                        <div class="tilt-readout-value" id="tiltFilterValue">900 Hz</div>
-                    </div>
-                    <div class="tilt-readout-chip">
-                        <span class="tilt-readout-label">Position</span>
-                        <div class="tilt-readout-value" id="tiltPositionValue">50%</div>
+        <div class="radar-orbit-wrapper" id="radarOrbitWrapper">
+            <div class="scene-container" id="sceneContainer">
+                <div class="ambient-glow" id="ambientGlow"></div>
+                <div class="peer-label-layer" id="peerLabelLayer"></div>
+                <div class="scene-hud">
+                    <div class="stream-indicator" id="streamIndicator">Mic capture idle</div>
+                    <div class="tilt-crosshair"></div>
+                    <div class="tilt-orb" id="tiltOrb"></div>
+                    <div class="tilt-readout">
+                        <div class="tilt-readout-chip">
+                            <span class="tilt-readout-label">Filter</span>
+                            <div class="tilt-readout-value" id="tiltFilterValue">900 Hz</div>
+                        </div>
+                        <div class="tilt-readout-chip">
+                            <span class="tilt-readout-label">Position</span>
+                            <div class="tilt-readout-value" id="tiltPositionValue">50%</div>
+                        </div>
                     </div>
                 </div>
             </div>
+            <div class="note-selector" id="noteSelector"></div>
+            <button class="play-button" id="playButton">TAP TO<br>PLAY</button>
         </div>
 
         <div class="info-row">
@@ -897,12 +936,6 @@
             <div class="my-freq" id="myFreq">440.0 Hz</div>
             <div class="detune-indicator" id="detuneIndicator"></div>
         </div>
-
-        <button class="play-button" id="playButton">
-            TAP TO<br>PLAY
-        </button>
-
-        <div class="note-selector" id="noteSelector"></div>
 
         <div class="status-bar" id="statusBar">Searching for nearby devices...</div>
     </div>
@@ -1171,11 +1204,18 @@
             ].join('\n');
         }
 
-        function registerDebugTap() {
+        function registerDebugTap(e) {
+            // Only trigger in bottom-left corner (80x80pt zone)
+            const touch = e.changedTouches ? e.changedTouches[0] : e;
+            const x = touch.clientX || touch.pageX || 0;
+            const y = touch.clientY || touch.pageY || 0;
+            const h = window.innerHeight;
+            if (x > 80 || y < h - 80) return;
+
             const now = performance.now();
             debugTapHistory.push(now);
 
-            while (debugTapHistory.length && now - debugTapHistory[0] > 550) {
+            while (debugTapHistory.length && now - debugTapHistory[0] > 800) {
                 debugTapHistory.shift();
             }
 
@@ -2544,9 +2584,24 @@
 
             // Note selector
             const selector = document.getElementById('noteSelector');
-            selector.innerHTML = Object.keys(notes).map(note => `
+            const noteKeys = Object.keys(notes);
+            selector.innerHTML = noteKeys.map(note => `
                 <button class="note-btn ${note === currentNote ? 'selected' : ''}" data-note="${note}">${note}</button>
             `).join('');
+
+            // Position notes in orbital ring around radar
+            const btns = selector.querySelectorAll('.note-btn');
+            const totalNotes = btns.length;
+            const startAngle = -90; // top
+            btns.forEach((btn, i) => {
+                const angle = startAngle + (i / totalNotes) * 360;
+                const rad = angle * Math.PI / 180;
+                // 50% = center, offset by ~46% to place on edge
+                const x = 50 + 46 * Math.cos(rad);
+                const y = 50 + 46 * Math.sin(rad);
+                btn.style.left = `calc(${x}% - 24px)`;
+                btn.style.top = `calc(${y}% - 24px)`;
+            });
 
             selector.querySelectorAll('.note-btn').forEach(btn => {
                 btn.addEventListener('click', () => {

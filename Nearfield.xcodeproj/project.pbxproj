@@ -8,12 +8,31 @@
 
 /* Begin PBXBuildFile section */
 		1A819DD24973581052EA9A0A /* nearfield.html in Resources */ = {isa = PBXBuildFile; fileRef = 37C0646667DDB929D70CAC9E /* nearfield.html */; };
+		2F1A20051B8C4D14989135A1 /* TPAWaitWidget.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 2F1A20011B8C4D14989135A1 /* TPAWaitWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		2F1A20061B8C4D14989135A1 /* TPAWaitWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F1A20031B8C4D14989135A1 /* TPAWaitWidget.swift */; };
 		4E306E509FC192897A6A1053 /* NearfieldApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1AFF821975E43488888CD72 /* NearfieldApp.swift */; };
 		95B17610906B225E9BACF3D0 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E78D4EB9B7A0874B969FD79 /* ContentView.swift */; };
 		A1B2C3D4E5F60718293A4B5C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F5061728394A5B6C /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		2F1A20131B8C4D14989135A1 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				2F1A20051B8C4D14989135A1 /* TPAWaitWidget.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		2F1A20011B8C4D14989135A1 /* TPAWaitWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TPAWaitWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		2F1A20021B8C4D14989135A1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		2F1A20031B8C4D14989135A1 /* TPAWaitWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TPAWaitWidget.swift; sourceTree = "<group>"; };
 		37C0646667DDB929D70CAC9E /* nearfield.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = nearfield.html; sourceTree = "<group>"; };
 		4E78D4EB9B7A0874B969FD79 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		8BD28AC5102D8EF39C97D770 /* Nearfield.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Nearfield.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -21,11 +40,31 @@
 		B1C2D3E4F5061728394A5B6C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFrameworksBuildPhase section */
+		2F1A20101B8C4D14989135A1 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
 /* Begin PBXGroup section */
+		2F1A20041B8C4D14989135A1 /* TPAWaitWidget */ = {
+			isa = PBXGroup;
+			children = (
+				2F1A20031B8C4D14989135A1 /* TPAWaitWidget.swift */,
+				2F1A20021B8C4D14989135A1 /* Info.plist */,
+			);
+			path = Nearfield/TPAWaitWidget;
+			sourceTree = "<group>";
+		};
 		5A3C24E79312995D5953D76D /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				8BD28AC5102D8EF39C97D770 /* Nearfield.app */,
+				2F1A20011B8C4D14989135A1 /* TPAWaitWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -34,6 +73,7 @@
 			isa = PBXGroup;
 			children = (
 				E60D28787DE4C8DD230B3950 /* Nearfield */,
+				2F1A20041B8C4D14989135A1 /* TPAWaitWidget */,
 				5A3C24E79312995D5953D76D /* Products */,
 			);
 			sourceTree = "<group>";
@@ -53,12 +93,32 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		2F1A20001B8C4D14989135A1 /* TPAWaitWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2F1A20161B8C4D14989135A1 /* Build configuration list for PBXNativeTarget "TPAWaitWidget" */;
+			buildPhases = (
+				2F1A200F1B8C4D14989135A1 /* Sources */,
+				2F1A20101B8C4D14989135A1 /* Frameworks */,
+				2F1A20111B8C4D14989135A1 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = TPAWaitWidget;
+			packageProductDependencies = (
+			);
+			productName = TPAWaitWidget;
+			productReference = 2F1A20011B8C4D14989135A1 /* TPAWaitWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		92F15ECC2F792E8FBE165DBC /* Nearfield */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = B324CD11E1173B5BD13E97CF /* Build configuration list for PBXNativeTarget "Nearfield" */;
 			buildPhases = (
 				31D2F492413E313506759E20 /* Sources */,
 				2CE61272A094FEA45F80FE47 /* Resources */,
+				2F1A20131B8C4D14989135A1 /* Embed App Extensions */,
 			);
 			buildRules = (
 			);
@@ -80,6 +140,9 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1500;
 				TargetAttributes = {
+					2F1A20001B8C4D14989135A1 = {
+						ProvisioningStyle = Automatic;
+					};
 					92F15ECC2F792E8FBE165DBC = {
 						ProvisioningStyle = Automatic;
 					};
@@ -99,11 +162,19 @@
 			projectRoot = "";
 			targets = (
 				92F15ECC2F792E8FBE165DBC /* Nearfield */,
+				2F1A20001B8C4D14989135A1 /* TPAWaitWidget */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		2F1A20111B8C4D14989135A1 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		2CE61272A094FEA45F80FE47 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -116,6 +187,14 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		2F1A200F1B8C4D14989135A1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2F1A20061B8C4D14989135A1 /* TPAWaitWidget.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		31D2F492413E313506759E20 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -128,6 +207,56 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
+		2F1A20141B8C4D14989135A1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 34TC8WMBSQ;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Nearfield/TPAWaitWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nearfield.app.TPAWaitWidget;
+				PRODUCT_BUNDLE_PACKAGE_TYPE = "XPC!";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		2F1A20151B8C4D14989135A1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 34TC8WMBSQ;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Nearfield/TPAWaitWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nearfield.app.TPAWaitWidget;
+				PRODUCT_BUNDLE_PACKAGE_TYPE = "XPC!";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		0A799D264CDEF89D583BC436 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -292,6 +421,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		2F1A20161B8C4D14989135A1 /* Build configuration list for PBXNativeTarget "TPAWaitWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2F1A20141B8C4D14989135A1 /* Debug */,
+				2F1A20151B8C4D14989135A1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		B324CD11E1173B5BD13E97CF /* Build configuration list for PBXNativeTarget "Nearfield" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
