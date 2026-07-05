@@ -285,6 +285,28 @@ test('ombak: fingerprint and slew shrink in cents as register rises', () => {
   assert.ok(low > highD * 1.5, `low register beats wider in cents (${low} vs ${highD})`);
 });
 
+test('focus is sticky: near-equal peers do not flap', () => {
+  const params = P(), scale = SCALE();
+  const r = new ctx.RewardState({ id: 0, role: 'voice', pitchHz: 220 }, params, scale);
+  // peer 1 arrives first; peer 2 joins shortly after with a near-equal envelope
+  const step = (secs, ids) => {
+    let out;
+    for (let t = 0; t < secs; t += 0.2) {
+      out = r.update(0.2, {
+        encounters: new Map(ids.map(i => [i, true])),
+        buckets: new Map(ids.map(i => [i, 'near'])),
+        motion: 0.3,
+        peerPitches: new Map(ids.map(i => [i, 220])),
+      });
+    }
+    return out;
+  };
+  step(1.0, [1]);
+  const focusHistory = new Set();
+  for (let t = 0; t < 20; t += 0.2) focusHistory.add(step(0.2, [1, 2]).focusId);
+  assert.deepEqual([...focusHistory], [1], 'incumbent focus holds against a near-equal challenger');
+});
+
 test('PairRadio is deterministic under a seed', () => {
   const params = P();
   const a = new ctx.PairRadio(params, ctx.mulberry32(42));

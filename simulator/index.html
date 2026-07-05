@@ -530,13 +530,22 @@ class RewardState {
       }
     }
 
-    // focus peer and bloom
+    // focus peer and bloom. Focus is sticky: a challenger must beat the
+    // incumbent's score by 15% to take over — prevents tick-to-tick flapping
+    // between near-equal peers (which jerks bloom, detune, and visuals).
     const beta = p.bloom.beta_familiarity;
-    let focusId = null, focusScore = 0;
-    for (const [id, e] of this.E) {
-      const score = e * (1 - beta * (this.F.get(id) ?? 0));
-      if (score > focusScore) { focusScore = score; focusId = id; }
+    const score = id => (this.E.get(id) ?? 0) * (1 - beta * (this.F.get(id) ?? 0));
+    let bestId = null, bestScore = 0;
+    for (const [id] of this.E) {
+      const s = score(id);
+      if (s > bestScore) { bestScore = s; bestId = id; }
     }
+    let focusId = this.focusId ?? null;
+    const incumbent = focusId !== null ? score(focusId) : 0;
+    if (bestId !== focusId && bestScore > incumbent * 1.15) focusId = bestId;
+    if (focusId !== null && score(focusId) < 0.005) focusId = null;
+    this.focusId = focusId;
+    const focusScore = focusId !== null ? score(focusId) : 0;
     const Braw = focusScore * (p.bloom.gain_base + p.bloom.gain_wind * this.W);
     const B = Braw * roleP.bloom_scale * (inputs.bloomMultiplier ?? 1);
 
@@ -1019,7 +1028,7 @@ function draw() {
       if (b.id <= a.id) continue;
       const sAB = a.sensors.get(b.id);
       if (sAB && sAB.encounterActive) {
-        const e = Math.max(a.out.focusId === b.id ? a.out.E : 0.25, 0.25);
+        const e = Math.max(a.out.focusId === b.id ? a.visE : 0.25, 0.25);
         cx.strokeStyle = `rgba(140,150,255,${0.15 + 0.5 * e})`;
         cx.beginPath(); cx.moveTo(px(a.x), py(a.y)); cx.lineTo(px(b.x), py(b.y)); cx.stroke();
       }
@@ -1027,10 +1036,10 @@ function draw() {
   }
   // agents
   for (const a of sim.agents) {
-    const rad = 4 + 10 * a.out.B + (a.role === 'anchor' ? 3 : 0);
+    const rad = 4 + 10 * (a.visB ?? 0) + (a.role === 'anchor' ? 3 : 0);
     cx.beginPath();
     cx.fillStyle = ROLE_COLORS[a.role];
-    cx.globalAlpha = a.role === 'shimmer' ? 0.55 + 0.45 * (a.motion || 0) : 0.9;
+    cx.globalAlpha = a.role === 'shimmer' ? 0.55 + 0.45 * (a.visM ?? 0) : 0.9;
     cx.arc(px(a.x), py(a.y), rad, 0, 2 * Math.PI);
     cx.fill();
     cx.globalAlpha = 1;
@@ -1060,6 +1069,7 @@ const phone = {
   agentId: null, dark: true, gl: null, prog: null,
   beatPhases: new Map(), // peerId -> accumulated fringe phase
   centers: null, centerSeedRng: null, lastT: 0,
+  visMeW: [], visPeerE: new Map(), visDensity: null, // per-frame smoothing state
 };
 
 const PHONE_FS = `
@@ -1120,6 +1130,7 @@ function initPhoneGL() {
 function openPhoneView(agentId) {
   phone.agentId = agentId;
   phone.beatPhases = new Map();
+  phone.visMeW = []; phone.visPeerE = new Map(); phone.visDensity = null;
   // per-agent seeded center layout (§14.2). All centers sit OUTSIDE the
   // visible frame (portrait corner radius ~1.12) so only arcs cross the
   // screen — no focal point ever appears except the earned final-gong one.
@@ -1194,7 +1205,9 @@ function drawPhone(dt) {
     meC.push(x, y);
     const s = srcSpec[k];
     meLam.push(lamFor(a.pitchHz * ratios[s.pk]));
-    meW.push(a.out.partialGains[s.pk] * s.w);
+    const wTarget = a.out.partialGains[s.pk] * s.w;
+    phone.visMeW[k] = (phone.visMeW[k] ?? 0) + (wTarget - (phone.visMeW[k] ?? 0)) * emaAlpha(dt, 0.2);
+    meW.push(phone.visMeW[k]);
   }
 
   // top peers by encounter envelope; fringe phase advances at the TRUE beat rate
@@ -1206,11 +1219,14 @@ function drawPhone(dt) {
   for (let j = 0; j < 3; j++) {
     const p = peers[j];
     if (p) {
+      const eSm = (phone.visPeerE.get(p.id) ?? 0) +
+        (p.E - (phone.visPeerE.get(p.id) ?? 0)) * emaAlpha(dt, 0.2);
+      phone.visPeerE.set(p.id, eSm);
       const ang = (fnv1a(`${p.id}|azimuth`) % 6283) / 1000;
-      const rad = 1.9 - 0.7 * p.E;   // approaches but stays outside the frame
+      const rad = 1.9 - 0.7 * eSm;   // approaches but stays outside the frame
       peerC.push(Math.cos(ang) * rad, Math.sin(ang) * rad);
       peerLam.push(lamFor(soundingHz(p.peer)));
-      peerW.push(p.E);
+      peerW.push(eSm);
       // fringe drift = the audible beat: nearest coinciding-partial difference
       // (0 when no partials coincide), soft-compressed above ~1 Hz
       const beatHz = 1.2 * Math.tanh(pairBeatHz(fMe, soundingHz(p.peer), ratios) / 1.2);
@@ -1226,7 +1242,10 @@ function drawPhone(dt) {
   const loc = n => g.getUniformLocation(prog, n);
   g.uniform2f(loc('res'), g.canvas.width, g.canvas.height);
   g.uniform1f(loc('ink'), phone.dark ? 1 : 0);
-  g.uniform1f(loc('density'), 2 + 2 * a.out.W);            // wind -> line density
+  const densTarget = 2 + 2 * a.out.W;
+  phone.visDensity = (phone.visDensity ?? densTarget) +
+    (densTarget - (phone.visDensity ?? densTarget)) * emaAlpha(dt, 0.5);
+  g.uniform1f(loc('density'), phone.visDensity);           // wind -> line density
   g.uniform1f(loc('breathScale'), 1 + 0.02 * Math.sin(phi));
   g.uniform2fv(loc('meC'), meC);
   g.uniform1fv(loc('meLam'), meLam);
@@ -1538,12 +1557,20 @@ function tickWall() {
 function frame() {
   requestAnimationFrame(frame);
   const now = performance.now();
-  const phoneDt = Math.min((now - (phone.lastT || now)) / 1000, 0.1);
+  const frameDt = Math.min((now - (phone.lastT || now)) / 1000, 0.1);
   phone.lastT = now;
   tickWall();
   if (!sim.running) return;
+  // presentation smoothing: the model ticks at 5 Hz (sensing cadence, §5.1);
+  // anything the eye tracks gets re-interpolated per frame so nothing steps
+  const a1 = emaAlpha(frameDt, 0.15);
+  for (const a of sim.agents) {
+    a.visB = (a.visB ?? 0) + (a.out.B - (a.visB ?? 0)) * a1;
+    a.visE = (a.visE ?? 0) + (a.out.E - (a.visE ?? 0)) * a1;
+    a.visM = (a.visM ?? 0) + ((a.motion ?? 0) - (a.visM ?? 0)) * a1;
+  }
   draw();
-  if (phone.agentId !== null) drawPhone(phoneDt);
+  if (phone.agentId !== null) drawPhone(frameDt);
   updateStats();
 }
 
