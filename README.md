@@ -2,6 +2,44 @@
 
 A sound installation where phones create richer harmonics as people physically get closer to each other.
 
+## v2 — Leaves in the Wind (in progress)
+
+A 10–50 phone crowd version is being built on the `design/crowd-ensemble` branch: each
+phone gets a pitch and role (anchor / voice / shimmer) from a scale derived from the
+tone's own slightly-stretched spectrum via sensory-dissonance curves; BLE encounters
+bloom your sound, staying parked thins it, movement recharges it. Design spec:
+`docs/superpowers/specs/2026-07-04-crowd-ensemble-design.md`. Plan:
+`docs/superpowers/plans/2026-07-05-crowd-ensemble-phase1-2.md`.
+
+**Try the simulator (no hardware needed):**
+
+```bash
+open simulator/index.html          # double-click works too; embedded configs
+# or, to serve the live config files:
+python3 -m http.server 8123        # from repo root
+# then visit http://localhost:8123/simulator/index.html
+```
+
+Tap BEGIN (sound needs a user gesture). Drag dots to move people, drag ◎ to move your
+ear. All reward-model constants are live sliders; `Export params.json` writes the tuning
+that real phones will consume. The "ideal sensing" checkbox A/Bs perfect knowledge vs
+the realistic noisy-BLE model.
+
+**Tests:**
+
+```bash
+python3 -m pytest tuning/                    # scale derivation
+node --test simulator/tests/core.test.mjs    # reward model + BLE pipeline
+```
+
+To regenerate the scale after changing the spectrum: `cd tuning && python3
+derive_scale.py` (writes `config/scale.json` + a dissonance-curve plot to
+`tuning/plots/`).
+
+---
+
+## v1 — UWB duet (below)
+
 Each participant's phone plays a simple tone. As two people approach each other, their phones detect the proximity using Ultra-Wideband (UWB) and progressively unlock harmonic overtones—transforming isolated sounds into rich, beating textures that emerge from human connection.
 
 ## How It Works
