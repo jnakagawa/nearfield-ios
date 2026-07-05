@@ -164,6 +164,94 @@ test('novelty pulses on fresh contact and expires', () => {
   assert.equal(out.novelty, 0, 'novelty expires after window');
 });
 
+test('fnv1a is deterministic and input-sensitive', () => {
+  assert.equal(ctx.fnv1a('phone-1|1751700000'), ctx.fnv1a('phone-1|1751700000'));
+  assert.notEqual(ctx.fnv1a('phone-1|1751700000'), ctx.fnv1a('phone-2|1751700000'));
+  assert.notEqual(ctx.fnv1a('phone-1|1751700000'), ctx.fnv1a('phone-1|1751700001'));
+});
+
+test('FingerprintDrift: bounded, deterministic, amplitude-scalable', () => {
+  const params = P();
+  const a = new ctx.FingerprintDrift(ctx.fnv1a('a|perf'), params, 1.0);
+  const b = new ctx.FingerprintDrift(ctx.fnv1a('a|perf'), params, 1.0);
+  const c = new ctx.FingerprintDrift(ctx.fnv1a('c|perf'), params, 1.0);
+  let maxAbs = 0, diverged = false;
+  for (let i = 0; i < 5000; i++) {
+    const va = a.update(0.2, 1), vb = b.update(0.2, 1), vc = c.update(0.2, 1);
+    assert.equal(va, vb, 'same seed, same curve');
+    if (Math.abs(va - vc) > 1) diverged = true;
+    maxAbs = Math.max(maxAbs, Math.abs(va));
+  }
+  assert.ok(diverged, 'different seeds diverge');
+  assert.ok(maxAbs <= params.drift.fingerprint_max_cents + 1e-9, `bounded (${maxAbs})`);
+  assert.ok(maxAbs > 1, `actually moves (${maxAbs})`);
+  assert.equal(a.update(0.2, 0), 0, 'amplitude 0 silences output without killing state');
+  const anchor = new ctx.FingerprintDrift(ctx.fnv1a('a|perf'), params, 0.3);
+  let anchorMax = 0;
+  for (let i = 0; i < 5000; i++) anchorMax = Math.max(anchorMax, Math.abs(anchor.update(0.2, 1)));
+  assert.ok(anchorMax <= params.drift.fingerprint_max_cents * 0.3 + 1e-9, 'role multiplier bounds');
+});
+
+test('ScoreState: interpolation, holds, labels, events, stretch', () => {
+  const params = P();
+  const s = new ctx.ScoreState(ctx.DEFAULT_SCORE, params);
+  // before first mention holds first value; buka ramps bloom in
+  assert.equal(s.valueAt('bloom_multiplier', 0), 0);
+  assert.ok(Math.abs(s.valueAt('bloom_multiplier', 60) - 0.5) < 1e-9, 'buka midpoint');
+  assert.equal(s.valueAt('bloom_multiplier', 300), 1);
+  assert.equal(s.valueAt('bloom_multiplier', 700), 1, 'held via re-mention');
+  assert.ok(Math.abs(s.valueAt('bloom_multiplier', 900) - 0.5) < 1e-9, 'final fade midpoint');
+  // breath holds 60 until turning, ramps to 40 by cycle-ii
+  assert.equal(s.valueAt('breath.period_s', 200), 60);
+  assert.ok(Math.abs(s.valueAt('breath.period_s', 510) - 50) < 1e-9);
+  assert.equal(s.valueAt('breath.period_s', 700), 40);
+  // labels
+  assert.equal(s.labelAt(60), 'buka');
+  assert.equal(s.labelAt(500), 'turning');
+  assert.equal(s.labelAt(900), 'final-gong');
+  // events fire once, in (prev, t]
+  s.seek(0);
+  assert.equal(s.tick(100).events.length, 0);
+  const at130 = s.tick(130);
+  assert.equal(at130.events.length, 1);
+  assert.equal(at130.events[0].type, 'section_gong');
+  assert.equal(s.tick(131).events.length, 0, 'no refire');
+  s.seek(830);
+  assert.equal(s.tick(850).events[0].type, 'final_gong');
+  // stretch trajectory
+  assert.ok(Math.abs(s.stretchAt(0) - 2.04) < 1e-9);
+  assert.ok(Math.abs(s.stretchAt(420) - 2.07) < 1e-9);
+  assert.ok(Math.abs(s.stretchAt(900) - 2.10) < 1e-9, 'holds after end_s');
+});
+
+test('interpolateScale blends rows continuously', () => {
+  const drift = ctx.DEFAULT_SCALE_DRIFT;
+  const canonical = ctx.interpolateScale(drift, 2.07);
+  assert.ok(Math.abs(canonical.scale_cents[3] - 957.5) < 1.0);
+  const low = ctx.interpolateScale(drift, 2.04);
+  const high = ctx.interpolateScale(drift, 2.10);
+  assert.ok(low.dip_intervals_cents.at(-1) < canonical.dip_intervals_cents.at(-1));
+  assert.ok(high.dip_intervals_cents.at(-1) > canonical.dip_intervals_cents.at(-1));
+  const mid = ctx.interpolateScale(drift, (2.04 + 2.07) / 2);
+  assert.ok(mid.scale_cents[3] > low.scale_cents[3] && mid.scale_cents[3] < canonical.scale_cents[3]);
+  assert.ok(Math.abs(mid.spectrum.ratios[1] - (2.04 + 2.07) / 2) < 1e-6, 'partial 2 tracks stretch');
+});
+
+test('bloomMultiplier gates bloom without touching envelopes', () => {
+  const params = P(), scale = SCALE();
+  const r = new ctx.RewardState({ id: 0, role: 'voice', pitchHz: 220 }, params, scale);
+  let out;
+  for (let t = 0; t < 15; t += 0.2) {
+    out = r.update(0.2, {
+      encounters: new Map([[1, true]]), buckets: new Map([[1, 'near']]),
+      motion: 0.5, peerPitches: new Map([[1, 220]]), bloomMultiplier: 0,
+    });
+  }
+  assert.equal(out.B, 0, 'bloom fully gated');
+  assert.ok(out.E > 0.8, 'encounter envelope still rises');
+  assert.ok(out.partialGains[1] < 0.02, 'no partials bloom while gated');
+});
+
 test('PairRadio is deterministic under a seed', () => {
   const params = P();
   const a = new ctx.PairRadio(params, ctx.mulberry32(42));
