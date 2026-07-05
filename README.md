@@ -25,6 +25,12 @@ ear. All reward-model constants are live sliders; `Export params.json` writes th
 that real phones will consume. The "ideal sensing" checkbox A/Bs perfect knowledge vs
 the realistic noisy-BLE model.
 
+**The 16-minute score:** hit *▶ play score* in the Score panel to run the full arc
+(buka → cycle I → turning → cycle II → final gong) with tuning drift and per-phone
+fingerprints. Set *time compression* to 8× or 16× to audition the whole piece in 1–2
+minutes. The *performance seed* makes each performance's detuning unique — pin a seed to
+replay it exactly.
+
 **Tests:**
 
 ```bash
