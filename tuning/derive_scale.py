@@ -119,6 +119,51 @@ def derive(spectrum, base_freq, pseudo_octave, max_degrees=7, min_degrees=4):
     }
 
 
+def sweep(spectrum_base, base_freq, s_from, s_to, steps):
+    """Derive aligned scales across a stretch range (spec §13.1).
+
+    The spectrum stretches uniformly with s: partial 2 IS the stretch, upper
+    partials scale proportionally (r_k(s) = r_k(2.07) * s / 2.07 for k >= 2).
+    For this spectrum family every interior dip is a scale degree, so rows are
+    aligned by matching each reference degree to the nearest dip in the row
+    (proportional fallback if a dip vanishes at some stretch)."""
+    base_ratios = spectrum_base["ratios"]
+    amps = list(spectrum_base["amps"])
+    stretches = list(np.linspace(s_from, s_to, steps))
+    # snap the row closest to the canonical stretch onto it exactly
+    ref_stretch = base_ratios[1]
+    mid_idx = int(np.argmin([abs(s - ref_stretch) for s in stretches]))
+    stretches[mid_idx] = ref_stretch
+
+    raw = []
+    for s in stretches:
+        ratios = [1.0] + [r * s / ref_stretch for r in base_ratios[1:]]
+        spectrum = {"ratios": ratios, "amps": amps}
+        raw.append((s, spectrum, derive(spectrum, base_freq, pseudo_octave=s)))
+
+    ref_scale = raw[mid_idx][2]["scale_cents"]
+    rows = []
+    for s, spectrum, out in raw:
+        pseudo = 1200.0 * math.log2(s)
+        scale_ref_pseudo = 1200.0 * math.log2(ref_stretch)
+        aligned = []
+        for c_ref in ref_scale:
+            candidates = [d for d in out["dip_intervals_cents"] if d < pseudo - 1.0]
+            near = min(candidates, key=lambda d: abs(d - c_ref)) if candidates else None
+            if near is not None and abs(near - c_ref) < 60:
+                aligned.append(round(near, 1))
+            else:  # dip vanished at this stretch: proportional placement
+                aligned.append(round(c_ref * pseudo / scale_ref_pseudo, 1))
+        aligned[0] = 0.0
+        rows.append({
+            "stretch": round(s, 6),
+            "spectrum": {"ratios": [round(r, 6) for r in spectrum["ratios"]], "amps": amps},
+            "scale_cents": aligned,
+            "dip_intervals_cents": aligned + [round(pseudo, 1)],
+        })
+    return rows
+
+
 def plot(cents, curve, result, out_path):
     import matplotlib
 
@@ -149,6 +194,8 @@ def main():
     p.add_argument("--pseudo-octave", type=float, default=2.07)
     p.add_argument("--ratios", default=None, help="comma-separated partial ratios")
     p.add_argument("--amps", default=None, help="comma-separated partial amplitudes")
+    p.add_argument("--sweep", default=None, metavar="FROM:TO:STEPS",
+                   help="also emit config/scale_drift.json across a stretch range, e.g. 2.04:2.10:15")
     args = p.parse_args()
 
     spectrum = dict(DEFAULT_SPECTRUM)
@@ -170,6 +217,16 @@ def main():
     print(f"scale_cents: {result['scale_cents']}")
     print(f"dip_intervals_cents: {result['dip_intervals_cents']}")
     print(f"wrote {config_path} and plots/dissonance_curve.png")
+
+    if args.sweep:
+        s_from, s_to, steps = args.sweep.split(":")
+        rows = sweep(spectrum, args.base_freq, float(s_from), float(s_to), int(steps))
+        drift_path = here.parent / "config" / "scale_drift.json"
+        drift_path.write_text(json.dumps(
+            {"version": 1, "base_freq_hz": float(args.base_freq), "rows": rows},
+            indent=2) + "\n")
+        print(f"wrote {drift_path} ({len(rows)} rows, "
+              f"stretch {rows[0]['stretch']}..{rows[-1]['stretch']})")
 
 
 if __name__ == "__main__":

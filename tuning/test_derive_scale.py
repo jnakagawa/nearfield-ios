@@ -1,6 +1,6 @@
 import math
 
-from derive_scale import pair_dissonance, dissonance_curve, find_dips, derive
+from derive_scale import pair_dissonance, dissonance_curve, find_dips, derive, sweep
 
 HARMONIC = {"ratios": [1.0, 2.0, 3.0, 4.0], "amps": [1.0, 0.5, 0.3, 0.2]}
 STRETCHED = {"ratios": [1.0, 2.07, 3.2, 4.4], "amps": [1.0, 0.5, 0.3, 0.2]}
@@ -50,3 +50,29 @@ def test_derive_output_schema():
     assert out["registers"] == {"anchor": -1, "voice": 0, "shimmer": 1}
     assert out["spectrum"] == STRETCHED
     assert out["pseudo_octave_ratio"] == 2.07
+
+
+def test_sweep_rows_aligned_and_consistent():
+    rows = sweep(STRETCHED, 220.0, 2.04, 2.10, 7)
+    assert len(rows) == 7
+    n_deg = len(rows[0]["scale_cents"])
+    n_dip = len(rows[0]["dip_intervals_cents"])
+    assert all(len(r["scale_cents"]) == n_deg for r in rows)
+    assert all(len(r["dip_intervals_cents"]) == n_dip for r in rows)
+    for r in rows:
+        # partial 2 tracks the stretch; upper partials scale proportionally
+        assert abs(r["spectrum"]["ratios"][1] - r["stretch"]) < 1e-9
+        assert r["scale_cents"] == sorted(r["scale_cents"])
+        assert r["scale_cents"][0] == 0
+        # last dip is the pseudo-octave for that stretch
+        assert abs(r["dip_intervals_cents"][-1] - 1200 * math.log2(r["stretch"])) < 1.0
+    # middle row is the canonical 2.07 tuning
+    mid = rows[3]
+    assert abs(mid["stretch"] - 2.07) < 1e-9
+    base = derive(STRETCHED, base_freq=220.0, pseudo_octave=2.07)
+    for a, b in zip(mid["scale_cents"], base["scale_cents"]):
+        assert abs(a - b) < 1.0
+    # degrees move continuously between adjacent rows (interpolable)
+    for r0, r1 in zip(rows, rows[1:]):
+        for a, b in zip(r0["scale_cents"], r1["scale_cents"]):
+            assert abs(a - b) < 40
