@@ -14,6 +14,9 @@ struct ContentView: View {
             Text("NEARFIELD")
                 .font(.system(size: 22, weight: .semibold))
                 .tracking(6)
+            Text("build hum-2")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
 
             Group {
                 switch hub.state {
