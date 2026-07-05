@@ -10,6 +10,15 @@ settings:
     DEVELOPMENT_TEAM: "34TC8WMBSQ"
     CODE_SIGN_STYLE: Automatic
 
+schemes:
+  NearfieldEnsemble:
+    build:
+      targets:
+        NearfieldEnsemble: all
+    test:
+      targets:
+        - NearfieldEnsembleTests
+
 targets:
   NearfieldEnsemble:
     type: application
@@ -43,6 +52,23 @@ targets:
         NSBluetoothPeripheralUsageDescription: "Bluetooth senses which other participants are near you; closeness shapes the sound."
         UIBackgroundModes:
           - audio
+
+  NearfieldEnsembleTests:
+    type: bundle.unit-test
+    platform: iOS
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+    sources:
+      - path: NearfieldEnsembleTests
+      - path: config/scale.json
+        buildPhase: resources
+      - path: config/params.json
+        buildPhase: resources
+      - path: config/fixtures/reward_golden.json
+        buildPhase: resources
+    dependencies:
+      - target: NearfieldEnsemble
 
   Nearfield:
     type: application
