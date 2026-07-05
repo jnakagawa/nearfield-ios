@@ -1,6 +1,6 @@
 # Nearfield v2 — Crowd Ensemble ("Leaves in the Wind")
 
-- **Date:** 2026-07-04
+- **Date:** 2026-07-04 (rev 2, 2026-07-05: BLE-only sensing; proximity demoted to coarse encounters)
 - **Status:** Approved design; implementation not started
 - **Scope:** 10–50 phone distributed audio artwork, hub-coordinated, native iOS, with a laptop simulator
 
@@ -8,14 +8,16 @@
 
 Nearfield v2 scales the piece from a 2-phone UWB duet to a 10–50 phone ensemble. A hub
 (laptop on venue WiFi) assigns each phone a pitch and a role from a scale derived from the
-tone's own slightly-stretched spectrum. Proximity to other participants blooms a phone's
-sound; staying parked with the same partner gently thins it; movement and new encounters
-recharge it. Beating between nearby phones happens physically in the air between speakers —
-the artwork lives between people, not in any one device.
+tone's own slightly-stretched spectrum. The continuously expressive inputs are the ones
+phones sense reliably: **motion** (leaves in the wind) and the hub's **global breath
+cycle**. Proximity is a coarse, occasional signal — BLE RSSI detects *encounters* (someone
+new is near you), which bloom your sound and then habituate; it never pretends to measure
+distance finely. Beating between nearby phones happens physically in the air between
+speakers — the artwork lives between people, not in any one device.
 
 A browser-based simulator auditions the full ensemble (agents moving in a virtual room,
-same synthesis and same reward model) so the piece can be composed and tuned without
-assembling hardware.
+same synthesis, same reward model, and a realistic BLE noise model) so the piece can be
+composed and tuned without assembling hardware.
 
 The existing 2-phone UWB piece on `main` stays intact as its own intimate mode; v2 is a
 separate mode/target, not a rewrite of v1's concept.
@@ -27,20 +29,25 @@ drive the design:
 
 1. **Roughness curve.** Two sine tones beat; perceived roughness peaks at ~25% of the
    critical bandwidth of separation and resolves to consonance at unison and beyond the
-   critical band. Distance between people can traverse this curve.
+   critical band.
 2. **Dissonance curves.** For any spectrum, sweeping a second copy against it and summing
    pairwise sine roughness yields a curve whose *dips* are the consonant intervals for that
    spectrum. Harmonic spectra produce the Western/just intervals; inharmonic spectra
    produce other scales (this is how gamelan tuning arises from its bar spectra).
 3. **Partial count = interval vocabulary.** 2 partials → dips only at unison and
    (pseudo-)octave; a 3rd partial adds the fifth-analog; a 4th adds the fourth-analog.
-   Fading partials in with proximity therefore changes *which neighbors you are in tune
+   Fading partials in with bloom therefore changes *which neighbors you are in tune
    with*, not just how rich you sound.
 4. **Amplitude moves dip depth, not dip location.** Partial gains can be modulated
-   continuously without shifting the tuning logic — proximity-driven fades are safe.
+   continuously without shifting the tuning logic — bloom-driven fades are safe.
 5. **Co-design timbre and tuning.** A scale derived from the ensemble's own spectrum makes
    every pairing able to land on a consonance the tuning actually supports. Nearfield gets
    its own tuning system with pure sine stacks — no gamelan timbre.
+
+With coarse sensing, the tension→resolution arc of fact 1 is traversed in **time** rather
+than space: an encounter starts the tone slightly off the consonant target and slews it
+into the dissonance-curve dip over several seconds (§5.3) — beating audibly slows and
+locks after two people meet.
 
 ## 3. Decisions
 
@@ -53,8 +60,26 @@ drive the design:
 | Coordination | Local hub (laptop on venue WiFi, WebSocket) |
 | Distribution | Native iOS via TestFlight beta for the performance |
 | Audio engine | Native `AVAudioEngine` (replaces WKWebView/Web Audio for sound) |
-| Proximity sense | Mic (Goertzel bank on known partials) + BLE RSSI; UWB/Multipeer dropped in crowd mode |
-| Audition tool | Browser simulator, zero build step, shared config with the app |
+| Proximity sense | **BLE RSSI only — coarse near/mid/far buckets and encounter events; proximity is a secondary input** |
+| Rejected senses | Mic amplitude (tried previously, flaky; AGC/robustness issues), overhead camera + CV (rejected on venue/aesthetic grounds), UWB mesh (2–4 concurrent `NISession` cap), acoustic chirp ToF (doesn't scale to continuous tracking) |
+| Audition tool | Browser simulator, zero build step, shared config with the app, realistic BLE model |
+
+### 3.1 Sensing rationale (research summary, 2026-07-05)
+
+- iPhones sustain only ~2–4 concurrent `NISession`s, so a UWB mesh cannot cover 10–50
+  phones; UWB fixed anchors don't ship multi-phone ranging off-the-shelf in 2026.
+- BLE RSSI through crowds swings ±10 dB with body absorption (exposure-notification
+  literature; Apple's iBeacon docs warn against computing distance from signal strength).
+  It is honest only as smoothed buckets — which is how this design uses it.
+- 25 years of shipped crowd-phone artworks (IRCAM CoSiMa/soundworks corpus, Fields,
+  Dialtones, NIME audience-participation literature) contain effectively **zero** works
+  with live fine inter-phone ranging; robust pieces are composed so sensing is texture,
+  not load-bearing (the "Fields doctrine"). IRCAM's one BLE-proximity piece (ProXoMix,
+  ≤24 people) used RSSI exactly as coarse per-peer gain, with explicit distrust of
+  distance estimates.
+- Consequence adopted here: the piece must remain musically complete with **zero**
+  proximity data (§8); expect 15–20% of phones to sense poorly at any moment and let the
+  composition absorb it.
 
 ## 4. Sound system
 
@@ -95,7 +120,7 @@ degrees. It emits:
 ```
 
 `scale_cents` are degrees within one pseudo-octave; `dip_intervals_cents` are the raw curve
-dips used by the pitch-pull mechanic (§5.3). Registers shift by whole pseudo-octaves.
+dips used by the resolution-slew mechanic (§5.3). Registers shift by whole pseudo-octaves.
 
 ### 4.3 Roles
 
@@ -104,8 +129,8 @@ not its sound:
 
 | Role | Share | Register | Partials | Behavior |
 |---|---|---|---|---|
-| **Anchor** | ~1 in 8 | −1 pseudo-octave | 2 | Swells on the global breath cycle; barely proximity-reactive; no pitch pull. The gravitational field. |
-| **Voice** | remainder | base | up to 3 | Fully proximity- and motion-reactive. The main dance. |
+| **Anchor** | ~1 in 8 | −1 pseudo-octave | 2 | Swells on the global breath cycle; ignores encounters; no resolution slew. The gravitational field. |
+| **Voice** | remainder | base | up to 3 | Motion- and encounter-reactive. The main dance. |
 | **Shimmer** | ~1 in 6 | +1 pseudo-octave | up to 4, low gain | Nearly silent when still; partial gains gated by motion. Leaves in the wind. |
 
 The hub assigns roles by join order to hold these ratios and can rebalance live from the
@@ -118,19 +143,26 @@ JavaScript (simulator) implementations produce identical results from identical 
 All constants live in `config/params.json` with the defaults given below; the simulator's
 sliders tune them and export the file.
 
-### 5.1 Inputs (per phone *i*, updated at 10–20 Hz)
+### 5.1 Inputs (per phone *i*, updated at ~5 Hz)
 
-- **Acoustic proximity** `prox_ij ∈ [0,1]` per audible neighbor *j*.
-  - Device: Goertzel amplitude of *j*'s fundamental, mapped through a soundcheck-calibrated
-    gain curve (§6.3).
-  - Simulator: `prox_ij = clamp((d_ref / max(d_ij, d_min))^p, 0, 1)` with defaults
-    `d_ref = 0.8 m`, `d_min = 0.2 m`, `p = 1.5`.
-- **Neighbor identity** via BLE RSSI (device) or ground truth (simulator): the set of
-  nearby participant IDs, for novelty tracking.
+- **Neighbor buckets** per peer *j*, from BLE. Each phone advertises its hub-assigned short
+  ID (service UUID + ID in the advertisement); each phone scans with duplicates allowed.
+  Per-packet RSSI is corrected by a per-device-model TX-power offset table, smoothed with
+  an EMA (`τ_rssi = 3 s`), then bucketed **with hysteresis** (defaults, recalibrated at
+  soundcheck §6.3):
+  - NEAR: enter above `rssi_near_enter = −50 dBm`, exit below `rssi_near_exit = −56 dBm`
+  - MID: enter above `rssi_mid_enter = −62 dBm`, exit below `rssi_mid_exit = −66 dBm`
+  - FAR: otherwise (including "not heard for > 10 s")
+
+  Under the §7.3 path-loss defaults these correspond to NEAR ≈ enter 1.7 m / exit 3.2 m
+  and MID ≈ enter 6 m / exit 9 m; the calibration scene (§6.3) re-fits them per venue.
+- **Encounter events**: an *encounter with j* begins when *j* has been NEAR continuously
+  for `T_enc_on = 2 s`, and ends when *j* has been out of NEAR for `T_enc_off = 4 s`.
+  Encounters are the only proximity signal the sound responds to; raw buckets/RSSI never
+  drive audio directly.
 - **Motion energy** `m_i ∈ [0,1]`: `clamp(EMA_τ=1s(|userAcceleration|) / a_max, 0, 1)` with
   `a_max = 0.5 g`, putting a calm walk (~0.25 g RMS) at ≈ 0.5.
-- **Novelty** `n_i ∈ [0,1]`: fraction of currently-significant neighbors
-  (`prox > 0.3`, or BLE RSSI above `rssi_near = −60 dBm`) not seen in the trailing
+- **Novelty** `n_i ∈ [0,1]`: fraction of current NEAR∪MID peer IDs not seen in the trailing
   `T_nov = 60 s` window.
 
 ### 5.2 State
@@ -138,14 +170,19 @@ sliders tune them and export the file.
 - **Wind reservoir** `W_i ∈ [0,1]`:
   `dW/dt = α_m·m_i + α_n·n_i − W_i/τ_W`, clamped.
   Defaults: `α_m = 0.15/s`, `α_n = 0.3/s`, `τ_W = 30 s`.
-- **Familiarity** `F_ij ∈ [0,1]` per significant neighbor:
-  while `prox_ij > 0.5`: `dF/dt = (1−F)/τ_F` (`τ_F = 25 s`);
+- **Encounter envelope** `E_ij ∈ [0,1]` per peer: rises toward 1 with time constant
+  `τ_A = 6 s` while the encounter is active; releases toward 0 with `τ_rel = 8 s` after it
+  ends.
+- **Familiarity** `F_ij ∈ [0,1]` per peer:
+  while an encounter with *j* is active: `dF/dt = (1−F)/τ_F` (`τ_F = 25 s`);
   otherwise `dF/dt = −F/τ_R` (`τ_R = 45 s`).
-- **Focus neighbor** `j* = argmax_j prox_ij`.
-- **Bloom** `B_i = prox_ij* · (1 − β·F_ij*) · (g_0 + g_W·W_i)`.
+- **Focus peer** `j* = argmax_j E_ij·(1 − β·F_ij)`.
+- **Bloom** `B_i = E_ij*·(1 − β·F_ij*) · (g_0 + g_W·W_i)`.
   Defaults: `β = 0.7`, `g_0 = 0.4`, `g_W = 0.6`.
-  Net effect: a fresh close encounter with a charged reservoir blooms fully; a parked pair
-  decays toward ~30% bloom; moving again (or meeting someone new) restores it.
+  Net effect: a fresh encounter with a charged wind reservoir blooms fully over ~6 s; a
+  parked pair decays toward ~30% bloom; moving again (or meeting someone new) restores it.
+  With no encounters at all, `B = 0` and the voice is carried by motion shimmer and the
+  global breath — the piece stays musically complete (§3.1, §8).
 
 ### 5.3 Sound mapping
 
@@ -155,13 +192,18 @@ sliders tune them and export the file.
   always on. Each role caps its partial count (§5.4), so `t_4` is only reachable by
   Shimmer. Because partial count controls the interval vocabulary (§2.3), blooming
   literally brings you into tune with more of the room.
-- **Pitch pull (tension → resolution).** Let `c_ij*` be the sounding interval in cents to
-  the focus neighbor and `c*` the nearest entry of `dip_intervals_cents`. If
-  `|c* − c_ij*| ≤ 60` cents, detune by `δ · B · (c* − c_ij*)` with `δ = 0.5` (each side
-  covers half), capped at ±12 cents, slewed at ≤ 10 cents/s. Approach is heard as beating
-  that slows and locks into consonance on arrival. Beyond 60 cents, no pull.
+- **Resolution slew (tension → resolution, time-based).** At encounter start with *j**,
+  let `c*` be the nearest entry of `dip_intervals_cents` to the nominal interval between
+  the two assigned pitches. The sounding pitch starts offset by `c_start = 10` cents per
+  side away from `c*` and slews into it as the envelope rises:
+  `detune_i(t) = c_start · (1 − E_ij*)`, slew-limited to ≤ 6 cents/s.
+  Both phones detect the encounter within seconds of each other, so the combined ~20-cent
+  offset (≈ 2.5 Hz beating at 220 Hz) audibly slows and locks into the consonant dip —
+  the Plomp–Levelt arc rendered in time. On release, drift back to nominal at the same
+  rate. No slew when the nominal interval is > 60 cents from any dip.
 - **Shimmer (AM).** Rate `r = 0.1 + 2.5·m_i` Hz, depth `0.25·W_i`, applied to the voice's
-  overall gain. Movement is audible as gentle flutter.
+  overall gain. Movement is audible as gentle flutter — with proximity coarse, this and
+  the partial blooms carried by `W` are the piece's primary continuous expression.
 - **Global breath.** Hub clock with period `T_breath = 60 s` (§6.1). Ensemble-wide gain
   multiplier `1 + 0.08·sin(φ)`. Anchors follow a deeper swell `0.5 + 0.5·sin(φ + offset_i)`
   with slow attack, each anchor offset so lows overlap rather than pulse together.
@@ -171,9 +213,9 @@ sliders tune them and export the file.
 | | Anchor | Voice | Shimmer |
 |---|---|---|---|
 | Max partials | 2 | 3 | 4 |
-| Bloom input | `B × 0.3` | `B` | `B` |
+| Bloom input | ignored | `B` | `B` |
 | Partial gate | fixed 2 partials | as §5.3 | §5.3 gains additionally × `clamp(2·m_i, 0, 1)` |
-| Pitch pull | none | full | full |
+| Resolution slew | none | full | full |
 | Base gain | breath-driven | 1.0 | 0.5 |
 | AM depth | ×0.5 | ×1.0 | ×1.5 |
 
@@ -182,21 +224,22 @@ sliders tune them and export the file.
 ```
 Hub (laptop, venue WiFi)
 ├─ WebSocket server: join → {pitch, role, configs}; broadcasts clock + params
-├─ Artist dashboard (web): live field view, role rebalance, scenes, master fade,
-│  soundcheck calibration
+├─ Artist dashboard (web): connection/encounter graph view, role rebalance,
+│  scenes, master fade, RSSI threshold calibration
 └─ serves config/scale.json + config/params.json
 
 iPhone app (this repo, new modules alongside v1)
 ├─ HubClient        — URLSession WebSocket; assignment, clock, live params
 ├─ VoiceEngine      — AVAudioEngine + AVAudioSourceNode sine stack (≤4 partials)
-├─ AcousticSensor   — mic tap on the same engine → Goertzel bank, self-notch
-├─ NeighborSensor   — CoreBluetooth advertise + scan, RSSI, duty-cycled
+├─ NeighborSensor   — CoreBluetooth advertise + scan → smoothed buckets,
+│                     encounter events (§5.1)
 ├─ MotionSensor     — CoreMotion user-acceleration energy
 ├─ RewardModel      — §5 state machine (pure, unit-tested)
 └─ SwiftUI          — minimal performance screen: role, pitch, field state
 
 Simulator (browser, zero build step)
-└─ simulator/index.html — same scale.json/params.json, same reward model in JS
+└─ simulator/index.html — same scale.json/params.json, same reward model in JS,
+   BLE noise model over agent ground truth
 ```
 
 ### 6.1 Hub
@@ -206,55 +249,60 @@ already requires Python for `tuning/derive_scale.py`, so this keeps one offline 
 Protocol (JSON over WebSocket):
 
 - `→ join {device_id, name}`
-- `← assign {pitch_hz, role, scale, params, clock: {epoch_ms, period_s}}`
+- `← assign {participant_id, pitch_hz, role, scale, params, clock: {epoch_ms, period_s}}`
 - `← params_update {…}` — live tuning from dashboard, applied without rejoin
 - `← scene {name}` / `← master {gain}`
-- `→ telemetry {W, B, neighbor_count}` at 1 Hz — feeds the dashboard field view
+- `→ telemetry {W, B, buckets: {near: [ids], mid: [ids]}, active_encounters: [ids]}` at
+  1 Hz — feeds the dashboard's encounter-graph view (nodes = phones colored by role and
+  sized by bloom; edges = active encounters). With no positions sensed, the dashboard
+  shows the *social graph*, not a map.
 
 Assignment: roles round-robin to hold §4.3 ratios; pitch degree = `join_index mod
-len(scale_cents)` within the role's register. Clock sync: epoch + period with round-trip
-offset estimation; drift is irrelevant at 60 s cycles. Phones that lose the hub keep their
-last assignment and free-run the clock; rejoin is silent.
+len(scale_cents)` within the role's register; `participant_id` is a compact (16-bit) ID
+for BLE advertisement. Clock sync: epoch + period with round-trip offset estimation; drift
+is irrelevant at 60 s cycles. Phones that lose the hub keep their last assignment and
+free-run the clock; rejoin is silent.
 
-### 6.2 Why audio goes native
+### 6.2 Audio engine
 
-Mic sensing requires the input tap and the synthesis on one `AVAudioEngine` under a
-`.measurement`-mode `AVAudioSession` — otherwise iOS voice processing (echo cancellation,
-AGC) attenuates exactly the steady sine partials the Goertzel bank listens for. Native also
-removes the JS-bridge latency and the WKWebView lifecycle from the performance-critical
-path. The WebView remains only if v2 wants its Three.js visuals; sound never routes
-through it.
+Native `AVAudioEngine` with an `AVAudioSourceNode` rendering the ≤4-partial sine stack:
+sample-accurate partial-gain and detune automation for the slews in §5.3, robust
+interruption handling, no WKWebView lifecycle or JS-bridge latency in the audio path. The
+WebView remains only if v2 wants its Three.js visuals; sound never routes through it.
+(With mic sensing cut, no special audio-session input mode is required — plain `.playback`
+category.)
 
 ### 6.3 Sensing details
 
-- **Goertzel bank.** The hub assignment tells every phone the complete set of frequencies
-  that can exist in the room (all participants' partials). The sensor runs one Goertzel
-  filter per foreign fundamental (~50 filters, trivial CPU at 10–20 Hz update), notching
-  out its own partials by construction (they are known exactly). Fundamentals are spaced by
-  the scale, so bins don't collide within a register; collisions across registers are
-  resolved by register gain weighting.
-- **Calibration.** At soundcheck, the dashboard runs a calibration scene: phones take turns
-  playing a reference tone at known distances; the amplitude→proximity curve per venue is
-  fit and pushed via `params_update`.
-- **BLE.** Each phone advertises a service UUID + participant ID and scans duty-cycled
-  (e.g., 2 s on / 3 s off). RSSI smoothed with an EMA; used only for identity/novelty, not
-  fine proximity.
+- **BLE.** Foreground only (performance app, screen on): CoreBluetooth peripheral manager
+  advertises the service UUID + `participant_id`; central manager scans with
+  `CBCentralManagerScanOptionAllowDuplicatesKey` for continuous per-packet RSSI. Smoothing,
+  bucketing, hysteresis, and encounter logic per §5.1. A static per-device-model TX-offset
+  table ships in `params.json` (extended as models are tested).
+- **Calibration.** At soundcheck, the dashboard runs a calibration scene: pairs of phones
+  are held at reference distances (~1 m and ~3 m) for a few seconds each; the hub fits the
+  bucket thresholds per venue and pushes them via `params_update`.
+- **Honesty rule.** RSSI never maps to a continuous distance anywhere in the codebase —
+  buckets and encounter events only (§3.1).
 
 ### 6.4 Config artifacts
 
 - `config/scale.json` — spectrum, scale, registers (§4.2). Generated by `tuning/derive_scale.py`.
-- `config/params.json` — every constant in §5 plus role modifier table. Hand-edited or
-  exported from the simulator; served by the hub so all clients share one truth.
+- `config/params.json` — every constant in §5 (including bucket thresholds, hysteresis,
+  encounter debounce times), role modifier table, TX-offset table. Hand-edited or exported
+  from the simulator; served by the hub so all clients share one truth.
 
 ## 7. Simulator
 
 ### 7.1 Purpose
 
-Hear the piece — 10–50 voices, roles, blooms, breath — without hardware, and *tune* it: the
-simulator is the composition tool. Every §5 constant is a slider; the result exports as
-`params.json`, which the hub then serves to real phones. It is Phase 1, before any device
-work, because it gates the aesthetic: if the piece doesn't work in the simulator, no amount
-of sensing code saves it.
+Hear the piece — 10–50 voices, roles, encounters, breath — without hardware, and *tune*
+it: the simulator is the composition tool. Every §5 constant is a slider; the result
+exports as `params.json`, which the hub then serves to real phones. It is Phase 2, before
+any device work, because it gates the aesthetic: if the piece doesn't work in the
+simulator, no amount of device code saves it. Critically, it must audition the piece
+**through the sensing we actually have** — coarse, laggy, noisy encounters — not through
+ground truth.
 
 ### 7.2 Requirements
 
@@ -268,65 +316,82 @@ of sensing code saves it.
 
 ### 7.3 Design
 
-- **Room:** 2D canvas, agents as dots colored by role, sized by bloom. Drag any agent;
-  drag the listener position.
+- **Room:** 2D canvas, agents as dots colored by role, sized by bloom; active encounters
+  drawn as edges. Drag any agent; drag the listener position.
 - **Movement presets:** `drift` (random walk), `flock` (attract/repel), `dance`
   (approach → linger → disperse cycles with per-agent tempo), `still` (control case —
   should audibly wilt via habituation). Global movement-rate slider.
+- **BLE model:** simulated RSSI per pair from ground-truth distance via log path loss
+  (`RSSI = P0 − 10·n·log10(d)`, defaults `P0 = −45 dBm @ 1 m`, `n = 2.2`) plus Gaussian
+  shadowing noise (`σ = 6 dB`, slider) and random body-block events (−10 dB for 2–8 s,
+  rate slider). The §5.1 smoothing/bucket/encounter pipeline runs on this noisy signal.
+  An **"ideal sensing" A/B toggle** bypasses the noise model so the cost of coarse sensing
+  is audible during composition.
 - **Audio graph per agent:** up to 4 × (`OscillatorNode` → per-partial `GainNode`) → one
   agent-level `GainNode` → `StereoPannerNode` (pan from x-position relative to listener) →
-  master. Distance to the listener sets a 1/d gain law on the agent gain. Digital summing reproduces beating exactly (it is a linear
-  mix); what it cannot reproduce is noted in §7.4.
+  master. Distance to the listener sets a 1/d gain law on the agent gain.
 - **Controls:** agent count, role ratios, all §5 params as sliders grouped by section,
-  breath period, scene A/B (save two param sets, toggle), `Export params.json`.
-- **Fidelity meter:** none — but the UI labels the sim listener as "one ear in the room";
-  walking the listener through the field is the intended audition gesture.
+  BLE noise params, breath period, scene A/B (save two param sets, toggle),
+  `Export params.json`.
 
 ### 7.4 Fidelity limits (accepted)
 
 The simulator omits room acoustics, speaker directivity, phone-speaker frequency response,
-crowd absorption, and mic-sensing noise; `prox` uses the ideal law of §5.1. It answers
-"does the composition work?", not "will sensing be robust?" — the latter is Phase 3's
-device-ladder question.
+and crowd absorption; its BLE model is a statistical caricature (log path loss + noise),
+not a venue prediction. It answers "does the composition work under coarse sensing?", not
+"what are this venue's thresholds?" — the latter is what the soundcheck calibration scene
+(§6.3) is for.
 
 ## 8. Failure handling (device)
 
+Per the Fields doctrine (§3.1), every degradation below leaves a musically complete phone:
+motion shimmer, role behavior, and the global breath never depend on sensing or the hub
+being live.
+
 - Hub unreachable → keep last assignment, free-run clock, silent rejoin loop.
-- Mic permission denied or input dead → BLE-only proximity (coarse but functional); warn on
-  the performance screen.
-- Loud venue → Goertzel thresholds recalibrated from the dashboard (§6.3).
+- Bluetooth off / permission denied / noisy RF → no encounters fire; the phone plays its
+  role on motion + breath alone; performance screen shows a subtle indicator.
 - Audio session interruption (call, Siri, route change) → standard interruption handling,
   auto-resume within 2 s.
-- Battery → dimmed performance screen, duty-cycled BLE, no display updates above 10 Hz.
+- Battery → dimmed performance screen, duty-cycled BLE scan (e.g., 2 s on / 1 s off;
+  encounter debounce already tolerates gaps), no display updates above 10 Hz.
 
 ## 9. Testing
 
 - **Tuning:** derivation script commits its dissonance-curve plots; reviewer eyeballs dips
   vs chosen degrees.
-- **Reward model:** golden fixture file (input time-series → expected `W/F/B/gains`
-  trajectories) checked into `config/fixtures/`; Swift and JS test suites both replay it
-  and must match within tolerance (1e-3).
-- **Goertzel bank:** unit-tested against synthesized WAV fixtures (known partials + pink
-  noise at graded SNR).
+- **Reward model:** golden fixture file (input time-series of buckets/motion → expected
+  `E/W/F/B/gains/detune` trajectories) checked into `config/fixtures/`; Swift and JS test
+  suites both replay it and must match within tolerance (1e-3).
+- **Bucket/encounter pipeline:** unit tests replay recorded RSSI traces (noisy, with
+  dropouts) and assert bucket transitions and encounter events, including hysteresis and
+  debounce edge cases.
 - **Integration:** simulator is the aural integration test; a device debug panel fakes
-  sensor inputs so the full loop runs in the iOS simulator.
-- **Device ladder:** 3 phones → 10 phones → dress rehearsal with venue soundcheck.
+  bucket/motion inputs so the full loop runs in the iOS simulator.
+- **Device ladder:** 3 phones → 10 phones → dress rehearsal with venue soundcheck
+  (threshold calibration + a walk-test that encounters fire within ~5 s of genuine
+  approaches).
 
 ## 10. Build phases
 
 1. **Derive** — `tuning/derive_scale.py` → `scale.json` + plots.
-2. **Simulate** — `simulator/index.html`; compose and tune until the piece sounds right;
-   export `params.json`. *Aesthetic gate: do not proceed until the sim version is good.*
+2. **Simulate** — `simulator/index.html` with the BLE noise model; compose and tune until
+   the piece sounds right *with realistic sensing*; export `params.json`.
+   *Aesthetic gate: do not proceed until the sim version is good.*
 3. **Hum** — hub server + `HubClient` + `VoiceEngine`: 3 phones play assigned pitches in
    the derived tuning.
-4. **Dance** — `AcousticSensor` + `NeighborSensor` + `MotionSensor` + `RewardModel` on
-   device; validate against the sim's golden fixtures.
+4. **Dance** — `NeighborSensor` + `MotionSensor` + `RewardModel` on device; validate
+   against the sim's golden fixtures; walk-test encounter latency.
 5. **Piece** — roles polish, global breath, dashboard scenes, soundcheck calibration
    tooling, dress rehearsal.
 
 ## 11. Out of scope (future)
 
-- UWB "duet mode" garnish for near-touching pairs (v1 hardware path preserved on `main`).
+- UWB "duet mode" garnish for near-touching pairs (v1 hardware path preserved on `main`;
+  viable at ≤4 phones within `NISession` limits).
+- Overhead-camera position tracking (researched, rejected for this piece; would restore
+  fine proximity if ever revisited).
+- Mic-based acoustic sensing (tried previously, flaky; superseded).
 - Web tier for bystanders' own phones.
 - Performance recording/documentation rig.
 - Android.
