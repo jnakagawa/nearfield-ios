@@ -415,6 +415,28 @@ being live.
 5. **Piece** — roles polish, global breath, dashboard scenes, soundcheck calibration
    tooling, dress rehearsal.
 
+## 11. Implementation status & known approximations
+
+(Section added rev 6 to fill a numbering gap from rev 3 and to keep spec-vs-built drift
+visible. Update when a phase lands or an approximation is resolved.)
+
+| Phase (§10) | Status |
+|---|---|
+| 1 Derive | ✅ `tuning/derive_scale.py` + sweep; 6 tests |
+| 2 Simulate | ✅ score, drift, voicing, ombak, §14 phone view; 18 tests |
+| 3 Hum | ✅ hub (4 tests) + `NearfieldEnsemble`; hardware-verified 2026-07-05 (iPhone 13 mini joined over tailnet as shimmer 626.1 Hz) |
+| 4 Dance | not started |
+| 5 Piece | not started |
+
+Known approximations (spec says / built does):
+- **§5.5 reverb:** spec: generated-IR convolution on iOS; built: `AVAudioUnitReverb`
+  (.largeHall2) stand-in in the Hum `VoiceEngine`. Resolve in Piece phase.
+- **§6.2/Hum partials:** static modest partial stack (fundamental + 0.35× partials);
+  bloom-driven gains arrive with the Dance-phase RewardModel.
+- **ATS (device networking):** `NSAllowsArbitraryLoads` only — do NOT add
+  `NSAllowsLocalNetworking` (its presence makes iOS ignore arbitrary-loads, and tailnet
+  100.x addresses are not "local" to ATS). Hard-won on 2026-07-05.
+
 ## 12. Form: the scored 16-minute arc
 
 The piece is **scored**: a fixed 16-minute timeline the hub drives, structured on
