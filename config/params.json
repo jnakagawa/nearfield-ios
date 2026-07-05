@@ -94,7 +94,9 @@
     "global_stretch_from": 2.04,
     "global_stretch_to": 2.1,
     "global_stretch_end_s": 840,
-    "role_multipliers": { "anchor": 0.3, "voice": 1.0, "shimmer": 1.3 }
+    "role_multipliers": { "anchor": 0.3, "voice": 1.0, "shimmer": 1.3 },
+    "ombak_enabled": true,
+    "ombak_ref_hz": 300
   },
   "ble_model": {
     "p0_dbm": -45,

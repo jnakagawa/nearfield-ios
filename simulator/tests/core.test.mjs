@@ -252,6 +252,39 @@ test('bloomMultiplier gates bloom without touching envelopes', () => {
   assert.ok(out.partialGains[1] < 0.02, 'no partials bloom while gated');
 });
 
+test('ombakScale keeps beat rates even across registers', () => {
+  const params = P();
+  assert.equal(ctx.ombakScale(300, params), 1);
+  assert.equal(ctx.ombakScale(600, params), 0.5);
+  assert.equal(ctx.ombakScale(60, params), 3, 'clamped at max');
+  params.drift.ombak_enabled = false;
+  assert.equal(ctx.ombakScale(600, params), 1, 'disabled -> no scaling');
+});
+
+test('ombak: fingerprint and slew shrink in cents as register rises', () => {
+  const params = P();
+  // fingerprint bound scales with 1/f
+  const high = new ctx.FingerprintDrift(ctx.fnv1a('x|p'), params, 1.0, 600);
+  let highMax = 0;
+  for (let i = 0; i < 5000; i++) highMax = Math.max(highMax, Math.abs(high.update(0.2, 1)));
+  assert.ok(highMax <= params.drift.fingerprint_max_cents * 0.5 + 1e-9,
+    `high-register fingerprint bounded at half (${highMax})`);
+  // slew offset scales with 1/f: same-pitch encounters, low vs high voice
+  const run = pitchHz => {
+    const r = new ctx.RewardState({ id: 0, role: 'voice', pitchHz }, params, SCALE());
+    let out;
+    for (let t = 0; t < 5; t += 0.2) {
+      out = r.update(0.2, {
+        encounters: new Map([[1, true]]), buckets: new Map([[1, 'near']]),
+        motion: 0.5, peerPitches: new Map([[1, pitchHz]]),
+      });
+    }
+    return Math.abs(out.detuneCents);
+  };
+  const low = run(220), highD = run(600);
+  assert.ok(low > highD * 1.5, `low register beats wider in cents (${low} vs ${highD})`);
+});
+
 test('PairRadio is deterministic under a seed', () => {
   const params = P();
   const a = new ctx.PairRadio(params, ctx.mulberry32(42));

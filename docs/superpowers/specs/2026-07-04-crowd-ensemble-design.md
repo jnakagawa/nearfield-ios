@@ -504,6 +504,17 @@ Drift constants (`drift` block in `params.json`): `fingerprint_max_cents: 12`,
 `fingerprint_tau_s: 90`, `global_stretch_from: 2.04`, `global_stretch_to: 2.10`,
 role multipliers.
 
+### 13.3 Ombak mode (rev 4, default on)
+
+Balinese gamelan tunes its instrument pairs (pengumbang/pengisep) to a beat **rate** in
+Hz — the *ombak* ("wave"), typically ~5–8 Hz — not to an interval in cents. Since beat
+rate ≈ `f · cents · 5.8e-4`, a fixed-cents offset beats ~10× faster (rougher) in the
+shimmer register than at the anchors. With `drift.ombak_enabled` (default true), the
+resolution-slew start offset and the fingerprint amplitude scale by
+`clamp(ombak_ref_hz / f, 0.25, 3)` (default ref 300 Hz), keeping pair beating slow and
+wave-like in every register. The dip-correction term is intonation, not beating, and
+stays unscaled.
+
 ## 14. Out of scope (future)
 
 - UWB "duet mode" garnish for near-touching pairs (v1 hardware path preserved on `main`;
