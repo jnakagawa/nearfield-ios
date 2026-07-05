@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "duration_s": 960,
+  "keyframes": [
+    { "at_s": 0, "label": "buka",
+      "patch": { "bloom_multiplier": 0.0, "master_multiplier": 1.0,
+                 "drift.fingerprint_amplitude": 1.0, "breath.period_s": 60 } },
+    { "at_s": 120, "label": "cycle-i",
+      "patch": { "bloom_multiplier": 1.0 } },
+    { "at_s": 420, "label": "turning",
+      "patch": { "breath.period_s": 60, "encounter.tau_attack_s": 6,
+                 "wind.alpha_novelty_per_s": 0.3, "shimmer_am.depth_wind": 0.25 } },
+    { "at_s": 600, "label": "cycle-ii",
+      "patch": { "breath.period_s": 40, "encounter.tau_attack_s": 4,
+                 "wind.alpha_novelty_per_s": 0.45, "shimmer_am.depth_wind": 0.35,
+                 "bloom_multiplier": 1.0 } },
+    { "at_s": 840, "label": "final-gong",
+      "patch": { "bloom_multiplier": 1.0, "master_multiplier": 1.0,
+                 "drift.fingerprint_amplitude": 1.0 } },
+    { "at_s": 960, "label": "end",
+      "patch": { "bloom_multiplier": 0.0, "master_multiplier": 0.0,
+                 "drift.fingerprint_amplitude": 0.0 } }
+  ],
+  "events": [
+    { "at_s": 120, "type": "section_gong" },
+    { "at_s": 420, "type": "section_gong" },
+    { "at_s": 600, "type": "section_gong" },
+    { "at_s": 840, "type": "final_gong" }
+  ]
+}

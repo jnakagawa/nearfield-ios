@@ -426,32 +426,26 @@ the final gong: convergence and decay into one last synchronized anchor swell.
 
 ### 12.3 Mechanism: `config/score.json`
 
-```json
-{
-  "version": 1,
-  "duration_s": 960,
-  "keyframes": [
-    { "at_s": 0,   "label": "buka",       "patch": { "bloom_multiplier": 0.0, "breath.period_s": 60 } },
-    { "at_s": 120, "label": "cycle-i",    "patch": { "bloom_multiplier": 1.0 } },
-    { "at_s": 420, "label": "turning",    "patch": { "breath.period_s": 40, "encounter.tau_attack_s": 4 } },
-    { "at_s": 600, "label": "cycle-ii",   "patch": { "wind.alpha_novelty_per_s": 0.45, "shimmer_am.depth_wind": 0.35 } },
-    { "at_s": 840, "label": "final-gong", "patch": { "bloom_multiplier": 0.0 } }
-  ],
-  "events": [
-    { "at_s": 120, "type": "section_gong" },
-    { "at_s": 420, "type": "section_gong" },
-    { "at_s": 600, "type": "section_gong" },
-    { "at_s": 840, "type": "final_gong" }
-  ]
-}
-```
+`config/score.json` is normative; its keyframes as of rev 3:
 
-- Keyframe `patch` values are paths into `params.json`, plus the score-only scalar
-  `bloom_multiplier` (multiplies `B` globally) — this is how entries/endings disable the
-  encounter mechanic without touching its constants.
-- **Interpolation:** scalars interpolate linearly from a keyframe's value to the next
-  keyframe that mentions the same path (params not mentioned hold their value); events
-  are discrete.
+| at_s | label | patch |
+|---|---|---|
+| 0 | buka | bloom_multiplier 0, master_multiplier 1, fingerprint_amplitude 1, breath 60 |
+| 120 | cycle-i | bloom_multiplier 1 |
+| 420 | turning | breath 60 (hold-end), tau_attack 6 (hold-end), novelty 0.3, shimmer depth 0.25 |
+| 600 | cycle-ii | breath 40, tau_attack 4, novelty 0.45, shimmer depth 0.35, bloom_multiplier 1 |
+| 840 | final-gong | bloom_multiplier 1, master_multiplier 1, fingerprint_amplitude 1 (hold-ends) |
+| 960 | end | bloom_multiplier 0, master_multiplier 0, fingerprint_amplitude 0 |
+
+Events: `section_gong` at 120/420/600, `final_gong` at 840.
+
+- Keyframe `patch` values are paths into `params.json`, plus score-only scalars:
+  `bloom_multiplier` (multiplies `B` globally — how entries/endings disable the encounter
+  mechanic without touching its constants) and `master_multiplier` (ensemble fade).
+- **Interpolation:** each path's mentions form a piecewise-linear curve through
+  `(at_s, value)` points; before its first mention a path holds that first value,
+  after its last it holds the last. Holding a value therefore requires re-mentioning it
+  at the keyframe where the hold ends (see breath 60 @ 420). Events are discrete.
 - **Distribution:** phones receive the entire score at `assign` and interpolate locally
   from score position; the hub broadcasts `{score_position_s}` at 1 Hz as drift
   correction. A phone that loses the hub free-runs the score — the piece continues.
