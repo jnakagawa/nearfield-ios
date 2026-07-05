@@ -4,9 +4,71 @@
 <meta charset="utf-8">
 <title>Nearfield — Leaves in the Wind (simulator)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #101014; color: #d8d8de;
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 16px;
+    padding: 10px 16px 8px; border-bottom: 1px solid #26262e;
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: 0.04em; }
+  header .sub { color: #8a8a96; font-size: 12px; }
+  #stats { margin-left: auto; color: #9aa0b4; font-variant-numeric: tabular-nums; font-size: 12px; }
+  #main { display: flex; flex: 1; min-height: 0; }
+  #stage { flex: 1; position: relative; min-width: 0; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
+  #panel {
+    width: 340px; overflow-y: auto; border-left: 1px solid #26262e;
+    padding: 12px 14px 40px; background: #14141a;
+  }
+  fieldset {
+    border: 1px solid #26262e; border-radius: 8px; margin: 0 0 12px; padding: 8px 10px 10px;
+  }
+  legend { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #8a8a96; padding: 0 6px; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+  .row label { flex: 0 0 148px; color: #b8b8c2; font-size: 12px; }
+  .row input[type=range] { flex: 1; min-width: 0; }
+  .row output { flex: 0 0 52px; text-align: right; color: #e8e8ee; font-variant-numeric: tabular-nums; font-size: 12px; }
+  .row select, .row button { background: #1e1e26; color: #d8d8de; border: 1px solid #33333e; border-radius: 6px; padding: 4px 8px; }
+  button { cursor: pointer; }
+  button:hover { border-color: #5a5aff; }
+  .btnrow { display: flex; gap: 8px; margin: 6px 0 2px; flex-wrap: wrap; }
+  .toggle { accent-color: #6a6aff; }
+  #overlay {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(10,10,14,0.82); z-index: 5; flex-direction: column; gap: 14px;
+  }
+  #overlay button {
+    font-size: 20px; padding: 18px 46px; border-radius: 999px;
+    background: #1c1c2a; border: 1px solid #5a5aff; color: #fff; letter-spacing: 0.12em;
+  }
+  #overlay .hint { color: #9aa0b4; max-width: 420px; text-align: center; font-size: 13px; }
+  .sceneActive { border-color: #6a6aff !important; }
+</style>
 </head>
 <body>
-<div id="app">loading…</div>
+<header>
+  <h1>NEARFIELD</h1>
+  <span class="sub">Leaves in the Wind — ensemble simulator</span>
+  <span id="stats">—</span>
+</header>
+<div id="main">
+  <div id="stage">
+    <canvas id="room"></canvas>
+    <div id="overlay">
+      <button id="startBtn">BEGIN</button>
+      <div class="hint">Sound starts on tap (browser rule). Drag dots to move people;
+      drag the ◎ to move your ear through the room. Everything on the right tunes the
+      piece live and exports as <code>params.json</code>.</div>
+    </div>
+  </div>
+  <div id="panel"></div>
+</div>
 
 <script id="nearfield-core">
 // ============================================================================
@@ -382,9 +444,541 @@ Object.assign(globalThis, {
 </script>
 
 <script>
-// UI/audio shell arrives in the next commit; core above is test-covered.
-document.getElementById('app').textContent =
-  'Nearfield simulator core loaded — UI coming in Task 5.';
+// ============================================================================
+// Simulator shell: room physics, Web Audio ensemble, live tuning controls.
+// Everything model-related lives in nearfield-core above and is test-covered.
+// ============================================================================
+'use strict';
+
+const ROOM_W = 12, ROOM_H = 8;             // meters
+const TICK_S = 0.2;                        // sensing/reward cadence (5 Hz, spec §5.1)
+const ROLE_COLORS = { anchor: '#4a6cd4', voice: '#e8e2d2', shimmer: '#59d6d6' };
+
+const sim = {
+  params: null, scale: null,
+  agents: [], listener: { x: ROOM_W / 2, y: ROOM_H / 2 },
+  preset: 'dance', speed: 1.0, idealSensing: false,
+  running: false, t: 0, tickAcc: 0,
+  rng: mulberry32(7),
+  scenes: { A: null, B: null, active: 'A' },
+  audio: null,   // {ctx, master, comp}
+  masterVol: 0.5,
+};
+
+// --- config loading (fetch when served over http, embedded on file://) ------
+
+async function loadConfigs() {
+  sim.scale = JSON.parse(JSON.stringify(DEFAULT_SCALE));
+  sim.params = JSON.parse(JSON.stringify(DEFAULT_PARAMS));
+  try {
+    const [s, p] = await Promise.all([
+      fetch('../config/scale.json').then(r => r.ok ? r.json() : null),
+      fetch('../config/params.json').then(r => r.ok ? r.json() : null),
+    ]);
+    if (s) sim.scale = s;
+    if (p) deepAssign(sim.params, p);
+  } catch (_) { /* file:// or no server — embedded defaults are fine */ }
+}
+
+// merge src into dst in place, preserving object identity (live references
+// inside RewardState/PairSensor keep working)
+function deepAssign(dst, src) {
+  for (const k of Object.keys(src)) {
+    if (src[k] && typeof src[k] === 'object' && !Array.isArray(src[k]) &&
+        dst[k] && typeof dst[k] === 'object') deepAssign(dst[k], src[k]);
+    else dst[k] = Array.isArray(src[k]) ? [...src[k]] : src[k];
+  }
+}
+
+function getPath(obj, path) { return path.split('.').reduce((o, k) => o[k], obj); }
+function setPath(obj, path, v) {
+  const ks = path.split('.'); const last = ks.pop();
+  ks.reduce((o, k) => o[k], obj)[last] = v;
+}
+
+// --- agents ------------------------------------------------------------------
+
+function makeAgents(n) {
+  disposeAudio();
+  const assigns = assignRoles(n, sim.scale, sim.params);
+  const anchorCount = assigns.filter(a => a.role === 'anchor').length;
+  let anchorIdx = 0;
+  sim.agents = assigns.map(a => {
+    const agent = {
+      ...a,
+      x: 1 + (ROOM_W - 2) * sim.rng(), y: 1 + (ROOM_H - 2) * sim.rng(),
+      vx: 0, vy: 0, speedSm: 0,
+      reward: new RewardState(a, sim.params, sim.scale),
+      sensors: new Map(), radios: new Map(),
+      dance: { phase: 'wander', target: null, timer: 2 + 6 * sim.rng(), tempo: 0.6 + sim.rng() },
+      out: { W: 0, B: 0, partialGains: [1, 0, 0, 0], detuneCents: 0, amRate: 0.1, amDepth: 0, focusId: null, E: 0 },
+      breathOffset: a.role === 'anchor' ? (2 * Math.PI * (anchorIdx++) / Math.max(anchorCount, 1)) : 0,
+      drag: null, audio: null,
+    };
+    return agent;
+  });
+  for (const a of sim.agents) {
+    for (const b of sim.agents) {
+      if (a.id === b.id) continue;
+      a.sensors.set(b.id, new PairSensor(sim.params));
+      a.radios.set(b.id, new PairRadio(sim.params, mulberry32(a.id * 1000 + b.id)));
+    }
+  }
+  if (sim.audio) buildAudio();
+}
+
+// --- movement presets ---------------------------------------------------------
+
+function stepPhysics(dt) {
+  const speed = sim.speed;
+  for (const a of sim.agents) {
+    if (a.drag) { // dragging: velocity from pointer motion (motion energy follows)
+      a.vx = (a.drag.x - a.x) / Math.max(dt, 1e-3);
+      a.vy = (a.drag.y - a.y) / Math.max(dt, 1e-3);
+      a.x = a.drag.x; a.y = a.drag.y;
+    } else if (sim.preset === 'still') {
+      a.vx = a.vy = 0;
+    } else if (sim.preset === 'drift') {
+      ouStep(a, dt, 0.5 * speed);
+    } else if (sim.preset === 'flock') {
+      let fx = 0, fy = 0;
+      for (const b of sim.agents) {
+        if (b.id === a.id) continue;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const d = Math.hypot(dx, dy) || 1e-3;
+        if (d < 0.8) { fx -= dx / d * 1.6; fy -= dy / d * 1.6; }
+        else if (d < 3) { fx += dx / d * 0.25; fy += dy / d * 0.25; }
+      }
+      a.vx += (fx * dt + (sim.rng() - 0.5) * 0.4 * dt) * speed;
+      a.vy += (fy * dt + (sim.rng() - 0.5) * 0.4 * dt) * speed;
+      dampAndMove(a, dt, 0.9 * speed);
+    } else { // dance: approach a partner, linger, disperse
+      const D = a.dance;
+      D.timer -= dt * D.tempo * speed;
+      if (D.phase === 'wander') {
+        if (!D.point || D.timer <= 0) {
+          D.point = { x: 0.8 + (ROOM_W - 1.6) * sim.rng(), y: 0.8 + (ROOM_H - 1.6) * sim.rng() };
+          D.timer = 3 + 5 * sim.rng();
+          if (sim.rng() < 0.6 && sim.agents.length > 1) {
+            D.phase = 'seek';
+            do { D.target = sim.agents[Math.floor(sim.rng() * sim.agents.length)].id; }
+            while (D.target === a.id);
+          }
+        }
+        seek(a, D.point, dt, 0.7 * speed);
+      } else if (D.phase === 'seek') {
+        const t = sim.agents.find(x => x.id === D.target);
+        if (!t) { D.phase = 'wander'; D.timer = 0; }
+        else {
+          seek(a, t, dt, 0.85 * speed);
+          if (Math.hypot(t.x - a.x, t.y - a.y) < 1.0) { D.phase = 'linger'; D.timer = 5 + 15 * sim.rng(); }
+        }
+      } else { // linger
+        ouStep(a, dt, 0.06 * speed); // tiny sway
+        if (D.timer <= 0) { D.phase = 'wander'; D.timer = 0; D.point = null; }
+      }
+    }
+    // walls
+    a.x = clamp(a.x, 0.3, ROOM_W - 0.3);
+    a.y = clamp(a.y, 0.3, ROOM_H - 0.3);
+    // smoothed speed -> motion energy proxy (calm walk 0.7 m/s ~ 0.5)
+    const sp = Math.hypot(a.vx, a.vy);
+    a.speedSm += (sp - a.speedSm) * emaAlpha(dt, sim.params.wind.motion_ema_tau_s);
+  }
+}
+
+function ouStep(a, dt, vTarget) {
+  a.vx += ((sim.rng() - 0.5) * 2.2 * dt - a.vx * 0.6 * dt);
+  a.vy += ((sim.rng() - 0.5) * 2.2 * dt - a.vy * 0.6 * dt);
+  dampAndMove(a, dt, vTarget);
+}
+function dampAndMove(a, dt, vMax) {
+  const sp = Math.hypot(a.vx, a.vy);
+  if (sp > vMax) { a.vx *= vMax / sp; a.vy *= vMax / sp; }
+  a.x += a.vx * dt; a.y += a.vy * dt;
+  if (a.x < 0.3 || a.x > ROOM_W - 0.3) a.vx *= -1;
+  if (a.y < 0.3 || a.y > ROOM_H - 0.3) a.vy *= -1;
+}
+function seek(a, target, dt, v) {
+  const dx = target.x - a.x, dy = target.y - a.y;
+  const d = Math.hypot(dx, dy) || 1e-3;
+  a.vx += (dx / d * v - a.vx) * 3 * dt;
+  a.vy += (dy / d * v - a.vy) * 3 * dt;
+  a.x += a.vx * dt; a.y += a.vy * dt;
+}
+
+// --- sensing + reward tick ----------------------------------------------------
+
+function idealRssi(d) {
+  const p = sim.params.ble_model;
+  return p.p0_dbm - 10 * p.path_loss_n * Math.log10(Math.max(d, 0.1));
+}
+
+function stepModel(dt) {
+  for (const a of sim.agents) {
+    const encounters = new Map(), buckets = new Map(), peerPitches = new Map();
+    for (const b of sim.agents) {
+      if (b.id === a.id) continue;
+      const d = Math.hypot(b.x - a.x, b.y - a.y);
+      const raw = sim.idealSensing ? idealRssi(d) : a.radios.get(b.id).update(dt, d);
+      const s = a.sensors.get(b.id).update(dt, raw);
+      buckets.set(b.id, s.bucket);
+      encounters.set(b.id, s.encounterActive);
+      peerPitches.set(b.id, b.pitchHz);
+    }
+    const motion = clamp(a.speedSm / 1.4, 0, 1);
+    a.out = a.reward.update(dt, { encounters, buckets, motion, peerPitches });
+    a.motion = motion;
+  }
+}
+
+// --- audio ---------------------------------------------------------------------
+
+function buildAudio() {
+  const { ctx, comp } = sim.audio;
+  const ratios = sim.scale.spectrum.ratios;
+  for (const a of sim.agents) {
+    const panner = new StereoPannerNode(ctx);
+    const agentGain = new GainNode(ctx, { gain: 0 });
+    agentGain.connect(panner).connect(comp);
+    const oscs = [], pGains = [];
+    for (let k = 0; k < 4; k++) {
+      const osc = new OscillatorNode(ctx, { type: 'sine', frequency: a.pitchHz * ratios[k] });
+      const g = new GainNode(ctx, { gain: k === 0 ? sim.scale.spectrum.amps[0] : 0 });
+      osc.connect(g).connect(agentGain);
+      osc.start();
+      oscs.push(osc); pGains.push(g);
+    }
+    a.audio = { oscs, pGains, agentGain, panner };
+  }
+}
+
+function disposeAudio() {
+  for (const a of sim.agents) {
+    if (!a.audio) continue;
+    for (const o of a.audio.oscs) { try { o.stop(); } catch (_) {} }
+    a.audio.agentGain.disconnect();
+    a.audio = null;
+  }
+}
+
+function applyAudio(now) {
+  if (!sim.audio) return;
+  const phi = 2 * Math.PI * (sim.t % sim.params.breath.period_s) / sim.params.breath.period_s;
+  const breath = breathGain(phi, sim.params);
+  for (const a of sim.agents) {
+    if (!a.audio) continue;
+    const roleP = sim.params.roles[a.role];
+    const o = a.out;
+    // partial gains + detune
+    for (let k = 0; k < 4; k++) {
+      a.audio.pGains[k].gain.setTargetAtTime(o.partialGains[k], now, 0.08);
+      a.audio.oscs[k].detune.setTargetAtTime(o.detuneCents, now, 0.08);
+    }
+    // spatialization relative to the listener
+    const dx = a.x - sim.listener.x, dy = a.y - sim.listener.y;
+    const d = Math.hypot(dx, dy);
+    const gDist = Math.min(1, 1 / Math.max(d, 1));
+    // role envelope
+    const roleEnv = a.role === 'anchor' ? anchorSwell(phi, a.breathOffset) : 1;
+    const am = 1 + o.amDepth * Math.sin(2 * Math.PI * o.amRate * sim.t);
+    const g = roleP.base_gain * roleEnv * breath * am * gDist * sim.masterVol * 0.14;
+    a.audio.agentGain.gain.setTargetAtTime(g, now, 0.05);
+    a.audio.panner.pan.setTargetAtTime(clamp(dx / (ROOM_W / 2), -1, 1), now, 0.1);
+  }
+}
+
+// --- canvas --------------------------------------------------------------------
+
+const canvas = document.getElementById('room');
+const cx = canvas.getContext('2d');
+let view = { s: 50, ox: 0, oy: 0 };
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  const r = canvas.getBoundingClientRect();
+  canvas.width = r.width * dpr; canvas.height = r.height * dpr;
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const s = Math.min(r.width / (ROOM_W + 1), r.height / (ROOM_H + 1));
+  view = { s, ox: (r.width - ROOM_W * s) / 2, oy: (r.height - ROOM_H * s) / 2 };
+}
+window.addEventListener('resize', resize);
+
+const px = (x) => view.ox + x * view.s;
+const py = (y) => view.oy + y * view.s;
+
+function draw() {
+  const r = canvas.getBoundingClientRect();
+  cx.clearRect(0, 0, r.width, r.height);
+  // room
+  cx.strokeStyle = '#2c2c36'; cx.lineWidth = 1;
+  cx.strokeRect(px(0), py(0), ROOM_W * view.s, ROOM_H * view.s);
+  // encounter edges
+  cx.lineWidth = 1;
+  for (const a of sim.agents) {
+    for (const b of sim.agents) {
+      if (b.id <= a.id) continue;
+      const sAB = a.sensors.get(b.id);
+      if (sAB && sAB.encounterActive) {
+        const e = Math.max(a.out.focusId === b.id ? a.out.E : 0.25, 0.25);
+        cx.strokeStyle = `rgba(140,150,255,${0.15 + 0.5 * e})`;
+        cx.beginPath(); cx.moveTo(px(a.x), py(a.y)); cx.lineTo(px(b.x), py(b.y)); cx.stroke();
+      }
+    }
+  }
+  // agents
+  for (const a of sim.agents) {
+    const rad = 4 + 10 * a.out.B + (a.role === 'anchor' ? 3 : 0);
+    cx.beginPath();
+    cx.fillStyle = ROLE_COLORS[a.role];
+    cx.globalAlpha = a.role === 'shimmer' ? 0.55 + 0.45 * (a.motion || 0) : 0.9;
+    cx.arc(px(a.x), py(a.y), rad, 0, 2 * Math.PI);
+    cx.fill();
+    cx.globalAlpha = 1;
+    if (a.out.detuneCents !== 0 && Math.abs(a.out.detuneCents) > 0.5) {
+      cx.strokeStyle = 'rgba(255,200,120,0.8)';
+      cx.beginPath(); cx.arc(px(a.x), py(a.y), rad + 3, 0, 2 * Math.PI); cx.stroke();
+    }
+  }
+  // listener
+  const lx = px(sim.listener.x), ly = py(sim.listener.y);
+  cx.strokeStyle = '#9aa0b4'; cx.lineWidth = 1.5;
+  cx.beginPath(); cx.arc(lx, ly, 9, 0, 2 * Math.PI); cx.stroke();
+  cx.beginPath(); cx.arc(lx, ly, 2.5, 0, 2 * Math.PI); cx.fillStyle = '#9aa0b4'; cx.fill();
+}
+
+// --- pointer interaction --------------------------------------------------------
+
+let dragging = null; // {kind:'agent'|'listener', agent?}
+canvas.addEventListener('pointerdown', ev => {
+  const rect = canvas.getBoundingClientRect();
+  const x = (ev.clientX - rect.left - view.ox) / view.s;
+  const y = (ev.clientY - rect.top - view.oy) / view.s;
+  if (Math.hypot(x - sim.listener.x, y - sim.listener.y) < 0.5) {
+    dragging = { kind: 'listener' };
+  } else {
+    let best = null, bd = 0.6;
+    for (const a of sim.agents) {
+      const d = Math.hypot(x - a.x, y - a.y);
+      if (d < bd) { bd = d; best = a; }
+    }
+    if (best) { dragging = { kind: 'agent', agent: best }; best.drag = { x: best.x, y: best.y }; }
+  }
+  canvas.setPointerCapture(ev.pointerId);
+});
+canvas.addEventListener('pointermove', ev => {
+  if (!dragging) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = clamp((ev.clientX - rect.left - view.ox) / view.s, 0.3, ROOM_W - 0.3);
+  const y = clamp((ev.clientY - rect.top - view.oy) / view.s, 0.3, ROOM_H - 0.3);
+  if (dragging.kind === 'listener') { sim.listener.x = x; sim.listener.y = y; }
+  else dragging.agent.drag = { x, y };
+});
+window.addEventListener('pointerup', () => {
+  if (dragging?.kind === 'agent') dragging.agent.drag = null;
+  dragging = null;
+});
+
+// --- control panel ---------------------------------------------------------------
+
+const PARAM_DEFS = [
+  { group: 'Wind', items: [
+    ['wind.alpha_motion_per_s', 'motion charge /s', 0, 0.6, 0.01],
+    ['wind.alpha_novelty_per_s', 'novelty charge /s', 0, 1, 0.01],
+    ['wind.tau_wind_s', 'reservoir decay τ (s)', 5, 120, 1],
+  ]},
+  { group: 'Encounter', items: [
+    ['sensing.encounter_on_s', 'debounce on (s)', 0.5, 6, 0.1],
+    ['sensing.encounter_off_s', 'debounce off (s)', 1, 12, 0.1],
+    ['encounter.tau_attack_s', 'bloom attack τ (s)', 1, 20, 0.5],
+    ['encounter.tau_release_s', 'bloom release τ (s)', 1, 30, 0.5],
+    ['encounter.tau_familiarity_s', 'habituate τ (s)', 5, 90, 1],
+    ['encounter.tau_familiarity_release_s', 'forget τ (s)', 5, 180, 1],
+  ]},
+  { group: 'Bloom & partials', items: [
+    ['bloom.beta_familiarity', 'habituation depth β', 0, 1, 0.01],
+    ['bloom.gain_base', 'bloom base g₀', 0, 1, 0.01],
+    ['bloom.gain_wind', 'bloom wind g_W', 0, 1, 0.01],
+    ['bloom.partial_thresholds.0', 'partial 2 threshold', 0, 1, 0.01],
+    ['bloom.partial_thresholds.1', 'partial 3 threshold', 0, 1, 0.01],
+    ['bloom.partial_thresholds.2', 'partial 4 threshold', 0, 1, 0.01],
+    ['bloom.threshold_width', 'threshold width', 0.05, 0.5, 0.01],
+  ]},
+  { group: 'Resolution slew', items: [
+    ['slew.cents_start', 'start offset (cents)', 0, 30, 0.5],
+    ['slew.cents_per_s_max', 'slew rate (cents/s)', 1, 30, 0.5],
+    ['slew.dip_max_distance_cents', 'dip window (cents)', 0, 120, 5],
+  ]},
+  { group: 'Shimmer & breath', items: [
+    ['shimmer_am.rate_motion_hz', 'AM rate × motion (Hz)', 0, 6, 0.1],
+    ['shimmer_am.depth_wind', 'AM depth × wind', 0, 0.8, 0.01],
+    ['breath.period_s', 'breath period (s)', 10, 180, 5],
+    ['breath.ensemble_depth', 'breath depth', 0, 0.3, 0.01],
+  ]},
+  { group: 'BLE sensing', items: [
+    ['sensing.rssi_ema_tau_s', 'RSSI smoothing τ (s)', 0.5, 10, 0.1],
+    ['sensing.rssi_near_enter_dbm', 'NEAR enter (dBm)', -70, -35, 1],
+    ['sensing.rssi_near_exit_dbm', 'NEAR exit (dBm)', -75, -40, 1],
+    ['ble_model.shadow_sigma_db', 'shadow noise σ (dB)', 0, 14, 0.5],
+    ['ble_model.body_block_rate_per_min', 'body blocks /min', 0, 12, 0.5],
+    ['ble_model.body_block_db', 'body block (dB)', -25, 0, 1],
+  ]},
+];
+
+function buildPanel() {
+  const panel = document.getElementById('panel');
+  panel.innerHTML = '';
+
+  // ensemble group
+  const ens = document.createElement('fieldset');
+  ens.innerHTML = '<legend>Ensemble</legend>';
+  ens.appendChild(sliderRow('participants', 2, 50, 1, sim.agents.length, v => {
+    makeAgents(Math.round(v)); }));
+  const presetRow = document.createElement('div'); presetRow.className = 'row';
+  presetRow.innerHTML = '<label>movement</label>';
+  const sel = document.createElement('select');
+  for (const p of ['dance', 'drift', 'flock', 'still']) {
+    const o = document.createElement('option'); o.value = p; o.textContent = p;
+    if (p === sim.preset) o.selected = true;
+    sel.appendChild(o);
+  }
+  sel.onchange = () => sim.preset = sel.value;
+  presetRow.appendChild(sel);
+  ens.appendChild(presetRow);
+  ens.appendChild(sliderRow('movement rate', 0, 2, 0.05, sim.speed, v => sim.speed = v));
+  ens.appendChild(sliderRow('master volume', 0, 1, 0.01, sim.masterVol, v => sim.masterVol = v));
+  const idealRow = document.createElement('div'); idealRow.className = 'row';
+  idealRow.innerHTML = '<label>ideal sensing (A/B)</label>';
+  const chk = document.createElement('input'); chk.type = 'checkbox'; chk.className = 'toggle';
+  chk.checked = sim.idealSensing;
+  chk.onchange = () => sim.idealSensing = chk.checked;
+  idealRow.appendChild(chk);
+  ens.appendChild(idealRow);
+  panel.appendChild(ens);
+
+  // param groups
+  for (const g of PARAM_DEFS) {
+    const fs = document.createElement('fieldset');
+    fs.innerHTML = `<legend>${g.group}</legend>`;
+    for (const [path, label, min, max, step] of g.items) {
+      fs.appendChild(sliderRow(label, min, max, step, getPath(sim.params, path),
+        v => setPath(sim.params, path, v), path));
+    }
+    panel.appendChild(fs);
+  }
+
+  // scenes + export
+  const act = document.createElement('fieldset');
+  act.innerHTML = '<legend>Scenes & export</legend>';
+  const btns = document.createElement('div'); btns.className = 'btnrow';
+  const saveA = mkBtn('save → A', () => { sim.scenes.A = JSON.parse(JSON.stringify(sim.params)); flash(saveA); });
+  const saveB = mkBtn('save → B', () => { sim.scenes.B = JSON.parse(JSON.stringify(sim.params)); flash(saveB); });
+  const loadA = mkBtn('load A', () => loadScene('A'));
+  const loadB = mkBtn('load B', () => loadScene('B'));
+  const exp = mkBtn('Export params.json', exportParams);
+  btns.append(saveA, saveB, loadA, loadB);
+  act.appendChild(btns);
+  const btns2 = document.createElement('div'); btns2.className = 'btnrow';
+  btns2.appendChild(exp);
+  act.appendChild(btns2);
+  panel.appendChild(act);
+
+  const scaleInfo = document.createElement('fieldset');
+  scaleInfo.innerHTML = `<legend>Scale</legend>
+    <div style="color:#9aa0b4">degrees (cents): ${sim.scale.scale_cents.join(', ')}<br>
+    pseudo-octave: ${sim.scale.dip_intervals_cents.at(-1)}¢ (ratio ${sim.scale.pseudo_octave_ratio})<br>
+    spectrum: ${sim.scale.spectrum.ratios.join(' · ')}</div>`;
+  panel.appendChild(scaleInfo);
+}
+
+function sliderRow(label, min, max, step, value, onInput, path) {
+  const row = document.createElement('div'); row.className = 'row';
+  const lab = document.createElement('label'); lab.textContent = label;
+  const inp = document.createElement('input');
+  inp.type = 'range'; inp.min = min; inp.max = max; inp.step = step; inp.value = value;
+  if (path) inp.dataset.path = path;
+  const out = document.createElement('output'); out.value = fmt(value);
+  inp.oninput = () => { const v = parseFloat(inp.value); out.value = fmt(v); onInput(v); };
+  row.append(lab, inp, out);
+  return row;
+}
+const fmt = v => Math.abs(v) >= 10 ? v.toFixed(0) : v.toFixed(2);
+function mkBtn(txt, fn) { const b = document.createElement('button'); b.textContent = txt; b.onclick = fn; return b; }
+function flash(btn) { btn.classList.add('sceneActive'); setTimeout(() => btn.classList.remove('sceneActive'), 600); }
+
+function loadScene(name) {
+  const snap = sim.scenes[name];
+  if (!snap) return;
+  deepAssign(sim.params, snap);
+  // refresh slider positions
+  document.querySelectorAll('input[data-path]').forEach(inp => {
+    inp.value = getPath(sim.params, inp.dataset.path);
+    inp.nextElementSibling.value = fmt(parseFloat(inp.value));
+  });
+}
+
+function exportParams() {
+  const blob = new Blob([JSON.stringify(sim.params, null, 2) + '\n'], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'params.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// --- main loop --------------------------------------------------------------------
+
+let lastTs = null;
+function frame(ts) {
+  requestAnimationFrame(frame);
+  if (lastTs === null) { lastTs = ts; return; }
+  const dt = Math.min((ts - lastTs) / 1000, 0.05);
+  lastTs = ts;
+  if (!sim.running) return;
+  sim.t += dt;
+  stepPhysics(dt);
+  sim.tickAcc += dt;
+  while (sim.tickAcc >= TICK_S) { stepModel(TICK_S); sim.tickAcc -= TICK_S; }
+  if (sim.audio) applyAudio(sim.audio.ctx.currentTime);
+  draw();
+  updateStats();
+}
+
+let statAcc = 0;
+function updateStats() {
+  statAcc += 1;
+  if (statAcc % 20 !== 0) return;
+  let enc = 0, sumB = 0, sumW = 0;
+  for (const a of sim.agents) {
+    sumB += a.out.B; sumW += a.out.W;
+    for (const [id, s] of a.sensors) if (id > a.id && s.encounterActive) enc++;
+  }
+  const n = sim.agents.length || 1;
+  document.getElementById('stats').textContent =
+    `${sim.agents.length} phones · ${enc} encounters · B̄ ${(sumB / n).toFixed(2)} · W̄ ${(sumW / n).toFixed(2)}${sim.idealSensing ? ' · IDEAL' : ' · BLE'}`;
+}
+
+// --- boot -------------------------------------------------------------------------
+
+document.getElementById('startBtn').onclick = async () => {
+  document.getElementById('overlay').remove();
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const comp = new DynamicsCompressorNode(ctx, { threshold: -18, knee: 20, ratio: 6, attack: 0.01, release: 0.3 });
+  const master = new GainNode(ctx, { gain: 1 });
+  comp.connect(master).connect(ctx.destination);
+  sim.audio = { ctx, comp, master };
+  buildAudio();
+  sim.running = true;
+};
+
+(async function init() {
+  await loadConfigs();
+  resize();
+  makeAgents(24);
+  buildPanel();
+  draw();
+  requestAnimationFrame(frame);
+})();
 </script>
 </body>
 </html>
