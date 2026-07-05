@@ -2,7 +2,7 @@
 
 - **Date:** 2026-07-04 (rev 2, 2026-07-05: BLE-only sensing; proximity demoted to coarse
   encounters. rev 3, 2026-07-05: scored 16-minute form §12, tuning drift + performance
-  seed §13)
+  seed §13. rev 5, 2026-07-05: visual identity §14 — interference topography)
 - **Status:** Approved design; phases 1–2 (derive + simulator) implemented
 - **Scope:** 10–50 phone distributed audio artwork, hub-coordinated, native iOS, with a laptop simulator
 
@@ -253,7 +253,7 @@ iPhone app (this repo, new modules alongside v1)
 │                     encounter events (§5.1)
 ├─ MotionSensor     — CoreMotion user-acceleration energy
 ├─ RewardModel      — §5 state machine (pure, unit-tested)
-└─ SwiftUI          — minimal performance screen: role, pitch, field state
+└─ Main screen      — interference-topography shader (§14), WKWebView visual layer
 
 Simulator (browser, zero build step)
 └─ simulator/index.html — same scale.json/params.json, same reward model in JS,
@@ -289,7 +289,8 @@ free-run the clock; rejoin is silent.
 Native `AVAudioEngine` with an `AVAudioSourceNode` rendering the ≤4-partial sine stack:
 sample-accurate partial-gain and detune automation for the slews in §5.3, robust
 interruption handling, no WKWebView lifecycle or JS-bridge latency in the audio path. The
-WebView remains only if v2 wants its Three.js visuals; sound never routes through it.
+WebView remains as the visual layer only (the §14 interference shader); sound never
+routes through it.
 (With mic sensing cut, no special audio-session input mode is required — plain `.playback`
 category.)
 
@@ -404,9 +405,9 @@ being live.
 1. **Derive** — `tuning/derive_scale.py` → `scale.json` + plots. ✅ (also: `--sweep` →
    `scale_drift.json` for §13.1)
 2. **Simulate** — `simulator/index.html` with the BLE noise model; compose and tune until
-   the piece sounds right *with realistic sensing*; export `params.json`. ✅ core;
-   **remaining: score transport + tuning drift + performance seed (§12–§13)**.
-   *Aesthetic gate: do not proceed until the sim version is good.*
+   the piece sounds right *with realistic sensing*; export `params.json`. ✅ core, score,
+   drift, voicing; **remaining: per-agent phone-screen view driving the §14 shader from
+   live state**. *Aesthetic gate: do not proceed until the sim version is good.*
 3. **Hum** — hub server + `HubClient` + `VoiceEngine`: 3 phones play assigned pitches in
    the derived tuning.
 4. **Dance** — `NeighborSensor` + `MotionSensor` + `RewardModel` on device; validate
@@ -515,7 +516,66 @@ resolution-slew start offset and the fingerprint amplitude scale by
 wave-like in every register. The dip-correction term is intonation, not beating, and
 stays unscaled.
 
-## 14. Out of scope (future)
+## 14. Visual identity: interference topography
+
+The phone's main screen is the piece's physics made visible. Selected from four live
+studies (`simulator/visuals.html`, sketch A): a black-and-white field of thin contour
+lines — a topographic map of wave interference — where **moiré fringes are literal
+beating**: two ring families whose spacings differ by the current detune produce fringes
+that drift at the true acoustic beat rate and freeze when the resolution slew locks.
+
+### 14.1 The field
+
+Scalar field = sum of ring families, one per sounding partial, contoured into
+constant-width hairlines (`fract` iso-lines normalized by `fwidth`; reference GLSL in
+`simulator/visuals.html`):
+
+- **My partials** each radiate from their **own seeded center** — scattered (some beyond
+  the frame) and slowly orbiting — so solo mode is *self-interference*: a woven terrain
+  with **no focal point**. (A single-center bullseye was reviewed and rejected.)
+- **Peer families** (up to 3 concurrent, focus peer strongest) enter from the frame edge
+  and approach as `E` rises; azimuth comes from a hash of the peer ID — BLE gives no
+  bearing, and the spec makes no pretense of one.
+- **The one exception to "no focal point":** during the final gong, as fingerprints
+  converge to the canonical scale, my centers slowly merge into a single point — the
+  bullseye is earned exactly once, as the piece's last image.
+
+### 14.2 Data bindings (all live, from the same state that drives audio)
+
+| Visual | Driven by |
+|---|---|
+| Ring spacing per family | sounding frequency of that partial (pitch × ratio, incl. drift §13.1) |
+| Family weight (line contribution) | partial gain from RewardState (§5.3) |
+| Peer family spacing offset | actual detune between the pair |
+| Fringe drift rate | true beat rate `Δf` between my fundamental and focus peer's — locks ⇒ freezes |
+| Peer family position | encounter envelope `E` (edge → inward) |
+| Solo line density (iso count) | wind `W` — sparse when still, denser as the room moves |
+| Global slow scale pulse (±2%) | breath phase (§5.3) |
+| Center layout + field rotation | fingerprint seed (§13.2) — each phone's screen is visually unique per performance |
+| Convergence to single center | final-gong fingerprint-amplitude ramp (§12) |
+
+### 14.3 Polarity, platform, performance
+
+- **Two polarities:** ink (black hairlines on white) as the default identity; inverted
+  (white on black) for dim venues — OLED-friendly across a 16-minute performance. The hub
+  can set polarity via `params_update`.
+- **Implementation:** one reference fragment shader (GLSL ES 1.0 +
+  `OES_standard_derivatives`). The simulator renders it per-agent (tap an agent → that
+  phone's screen view); the iOS app hosts the same shader in a WKWebView visual layer
+  (sound never routes through it, §6.2) — a Metal port is future scope if profiling
+  demands it.
+- **Budget:** DPR capped at 2, target 30 fps on phone (60 in the sim); rendering pauses
+  when the screen is off or the app is backgrounded — audio (§ Media Session) is
+  unaffected.
+
+### 14.4 Identity applications
+
+App icon and title card are stills of the field: the icon a tight crop of a *locked*
+state (frozen consonance), the title card a solo terrain. The sketchpad can render
+high-resolution frames for print/poster use; the identity system needs no assets beyond
+the shader and one typeface (a light geometric sans, tracked wide, as in the sketchpad UI).
+
+## 15. Out of scope (future)
 
 - UWB "duet mode" garnish for near-touching pairs (v1 hardware path preserved on `main`;
   viable at ≤4 phones within `NISession` limits).
@@ -524,4 +584,5 @@ stays unscaled.
 - Mic-based acoustic sensing (tried previously, flaky; superseded).
 - Web tier for bystanders' own phones.
 - Performance recording/documentation rig.
+- Metal port of the §14 shader (only if WKWebView profiling demands it).
 - Android.
