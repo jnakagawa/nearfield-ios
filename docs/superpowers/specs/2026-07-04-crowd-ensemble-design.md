@@ -1,7 +1,9 @@
 # Nearfield v2 — Crowd Ensemble ("Leaves in the Wind")
 
-- **Date:** 2026-07-04 (rev 2, 2026-07-05: BLE-only sensing; proximity demoted to coarse encounters)
-- **Status:** Approved design; implementation not started
+- **Date:** 2026-07-04 (rev 2, 2026-07-05: BLE-only sensing; proximity demoted to coarse
+  encounters. rev 3, 2026-07-05: scored 16-minute form §12, tuning drift + performance
+  seed §13)
+- **Status:** Approved design; phases 1–2 (derive + simulator) implemented
 - **Scope:** 10–50 phone distributed audio artwork, hub-coordinated, native iOS, with a laptop simulator
 
 ## 1. Summary
@@ -251,9 +253,12 @@ already requires Python for `tuning/derive_scale.py`, so this keeps one offline 
 Protocol (JSON over WebSocket):
 
 - `→ join {device_id, name}`
-- `← assign {participant_id, pitch_hz, role, scale, params, clock: {epoch_ms, period_s}}`
+- `← assign {participant_id, pitch_hz, role, scale, scale_drift, params, score,
+   performance_id, clock: {epoch_ms, period_s}}`
 - `← params_update {…}` — live tuning from dashboard, applied without rejoin
-- `← scene {name}` / `← master {gain}`
+- `← score_position {t_s}` — 1 Hz heartbeat; phones interpolate the score locally and
+  free-run if the hub disappears (§12.3)
+- `← master {gain}`
 - `→ telemetry {W, B, buckets: {near: [ids], mid: [ids]}, active_encounters: [ids]}` at
   1 Hz — feeds the dashboard's encounter-graph view (nodes = phones colored by role and
   sized by bloom; edges = active encounters). With no positions sensed, the dashboard
@@ -335,6 +340,12 @@ ground truth.
 - **Controls:** agent count, role ratios, all §5 params as sliders grouped by section,
   BLE noise params, breath period, scene A/B (save two param sets, toggle),
   `Export params.json`.
+- **Score transport (§12):** play/hold/scrub across the 16-minute score with a **time
+  compression** control (e.g., 8×: audition the whole arc in 2 minutes — bloom/drift
+  time constants scale accordingly so proportions hold). Section label and score
+  position in the stats bar; section-gong and final-gong events audible.
+- **Performance seed (§13):** seed field + reroll button; agent fingerprint seeds derive
+  from `fnv1a(agent_id ‖ seed)`. Same seed replays the same drift curves.
 
 ### 7.4 Fidelity limits (accepted)
 
@@ -376,9 +387,11 @@ being live.
 
 ## 10. Build phases
 
-1. **Derive** — `tuning/derive_scale.py` → `scale.json` + plots.
+1. **Derive** — `tuning/derive_scale.py` → `scale.json` + plots. ✅ (also: `--sweep` →
+   `scale_drift.json` for §13.1)
 2. **Simulate** — `simulator/index.html` with the BLE noise model; compose and tune until
-   the piece sounds right *with realistic sensing*; export `params.json`.
+   the piece sounds right *with realistic sensing*; export `params.json`. ✅ core;
+   **remaining: score transport + tuning drift + performance seed (§12–§13)**.
    *Aesthetic gate: do not proceed until the sim version is good.*
 3. **Hum** — hub server + `HubClient` + `VoiceEngine`: 3 phones play assigned pitches in
    the derived tuning.
@@ -387,7 +400,103 @@ being live.
 5. **Piece** — roles polish, global breath, dashboard scenes, soundcheck calibration
    tooling, dress rehearsal.
 
-## 11. Out of scope (future)
+## 12. Form: the scored 16-minute arc
+
+The piece is **scored**: a fixed 16-minute timeline the hub drives, structured on
+gamelan's time hierarchy — nested cycles (colotomy), conducted density levels (irama),
+with the hub in the kendhang role: it makes no sound, it broadcasts position, and the
+distributed ensemble realizes the texture.
+
+### 12.1 Nested cycles
+
+breath (~1 min) ⊂ section (2–5 min) ⊂ the piece (16 min, one long "gong cycle").
+Section boundaries are marked colotomically: a **section gong** event makes all anchors
+swell once *in phase* (~20 s), instead of their usual offset overlap. The piece ends on
+the final gong: convergence and decay into one last synchronized anchor swell.
+
+### 12.2 The sections (initial score; every number tunable in the simulator)
+
+| Time | Section | Character |
+|---|---|---|
+| 0:00–2:00 | **Buka** | Anchors alone establish the field; voices unmute staggered by join order (`t_i = i · 120/N`); encounters disabled (global bloom multiplier 0). The room learns the tuning. |
+| 2:00–7:00 | **Cycle I** | Encounter dynamics at the §5 defaults. Spacious; every meeting legible. |
+| 7:00–10:00 | **Turning** | Breath period 60 → 40 s; tuning drift (§13) accelerates; bloom attack quickens. Time densifies (irama shift). |
+| 10:00–14:00 | **Cycle II** | Dense level: novelty charge and shimmer AM up, faster blooms, movement matters most. |
+| 14:00–16:00 | **Final gong** | Bloom multiplier ramps to 0; fingerprint drift suspends and every voice glides home to the canonical scale; synchronized anchor swell; master fade to silence. |
+
+### 12.3 Mechanism: `config/score.json`
+
+```json
+{
+  "version": 1,
+  "duration_s": 960,
+  "keyframes": [
+    { "at_s": 0,   "label": "buka",       "patch": { "bloom_multiplier": 0.0, "breath.period_s": 60 } },
+    { "at_s": 120, "label": "cycle-i",    "patch": { "bloom_multiplier": 1.0 } },
+    { "at_s": 420, "label": "turning",    "patch": { "breath.period_s": 40, "encounter.tau_attack_s": 4 } },
+    { "at_s": 600, "label": "cycle-ii",   "patch": { "wind.alpha_novelty_per_s": 0.45, "shimmer_am.depth_wind": 0.35 } },
+    { "at_s": 840, "label": "final-gong", "patch": { "bloom_multiplier": 0.0 } }
+  ],
+  "events": [
+    { "at_s": 120, "type": "section_gong" },
+    { "at_s": 420, "type": "section_gong" },
+    { "at_s": 600, "type": "section_gong" },
+    { "at_s": 840, "type": "final_gong" }
+  ]
+}
+```
+
+- Keyframe `patch` values are paths into `params.json`, plus the score-only scalar
+  `bloom_multiplier` (multiplies `B` globally) — this is how entries/endings disable the
+  encounter mechanic without touching its constants.
+- **Interpolation:** scalars interpolate linearly from a keyframe's value to the next
+  keyframe that mentions the same path (params not mentioned hold their value); events
+  are discrete.
+- **Distribution:** phones receive the entire score at `assign` and interpolate locally
+  from score position; the hub broadcasts `{score_position_s}` at 1 Hz as drift
+  correction. A phone that loses the hub free-runs the score — the piece continues.
+- **Dashboard transport:** position display, start/hold/advance-to-next-section, scrub
+  (scrub is a rehearsal tool; performances run linearly).
+
+## 13. Tuning drift and the performance seed
+
+The video's closing observation — every gamelan is tuned differently, by memory,
+drifting irrecoverably over decades — becomes a live mechanic at two timescales:
+
+### 13.1 Global drift (the scale ages during the piece)
+
+The stretch factor follows a scored trajectory: **2.04 at 0:00 → 2.10 at 14:00**, then
+holds through the ending. The dips move with it, so the same encounter early and late in
+the piece resolves to a slightly different consonance — the tuning system ages roughly a
+decade per minute. Implementation: `derive_scale.py --sweep` precomputes a table of
+scales at ~15 stretch values → `config/scale_drift.json`; clients interpolate
+`scale_cents`/`dip_intervals_cents` between adjacent rows (pitch updates are
+slew-limited glides, ≤ 2 cents/s, inaudible as events).
+
+### 13.2 Per-phone fingerprint (unique per phone, per performance)
+
+Each phone's realized pitch wanders slowly around its assigned scale degree — a bounded
+OU (mean-reverting) random walk, **±12 cents max, time constant ~90 s** — so no two
+phones are ever exactly in tune, and each performance's detuning pattern is unique but
+reproducible:
+
+- `performance_id` = unix timestamp at hub launch, shown on the dashboard (pin it to
+  replay a performance's exact tuning; changes every performance by default).
+- `fingerprint_seed = fnv1a(device_id ‖ performance_id)` → seeds the phone's
+  deterministic PRNG (mulberry32). Same phone + same performance_id → same drift curve.
+- Role scaling: anchors drift ×0.3 (the reference instruments stay steadiest, as gamelan
+  gongs do); voices ×1.0; shimmer ×1.3.
+- **Why this composes with §5.3:** two fingerprinted phones meet at most ~24 cents off a
+  dip — well inside the 60-cent slew window — so the resolution slew *tunes them to each
+  other* as the encounter blooms. Tuning becomes a social act; drifting apart resumes
+  when they part. During the final-gong section, fingerprint amplitude ramps to 0 and
+  the ensemble converges to the canonical scale for the first and only time.
+
+Drift constants (`drift` block in `params.json`): `fingerprint_max_cents: 12`,
+`fingerprint_tau_s: 90`, `global_stretch_from: 2.04`, `global_stretch_to: 2.10`,
+role multipliers.
+
+## 14. Out of scope (future)
 
 - UWB "duet mode" garnish for near-touching pairs (v1 hardware path preserved on `main`;
   viable at ≤4 phones within `NISession` limits).
