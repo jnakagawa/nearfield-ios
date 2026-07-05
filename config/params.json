@@ -77,6 +77,16 @@
       "am_depth_scale": 1.5
     }
   },
+  "timbre": {
+    "loudness_ref_hz": 300,
+    "loudness_exponent": 0.5,
+    "shelf_freq_hz": 1800,
+    "shelf_gain_db": -7,
+    "lowpass_hz": 4200,
+    "reverb_wet": 0.3,
+    "reverb_decay_s": 5.5,
+    "reverb_damp_hz": 3000
+  },
   "drift": {
     "fingerprint_max_cents": 12,
     "fingerprint_tau_s": 90,

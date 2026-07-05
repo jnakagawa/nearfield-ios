@@ -223,6 +223,20 @@ sliders tune them and export the file.
 | Base gain | breath-driven | 1.0 | 0.5 |
 | AM depth | ×0.5 | ×1.0 | ×1.5 |
 
+### 5.5 Voicing (rev 4, 2026-07-05: sound-bath timbre layer)
+
+Presentation-layer shaping applied at the audio output (not in the reward model), added
+after the raw sine stack proved shrill in the 2–4 kHz band. `timbre` block in
+`params.json`; all values are performance-tunable:
+
+- **Equal-loudness tilt:** every partial's gain × `min(1, (loudness_ref_hz / f)^loudness_exponent)`
+  (defaults 300 Hz, 0.5) — compensates the ear's 2–4 kHz sensitivity; self-adjusts as the
+  tuning drifts.
+- **Master tone:** high-shelf cut (−7 dB @ 1.8 kHz) into a gentle lowpass (4.2 kHz).
+- **Reverb:** convolution with a *generated* impulse response — high-damped
+  exponential-decay noise (defaults: 5.5 s decay, 3 kHz damping, 30% wet, equal-power
+  mix). No sample assets; the iOS `VoiceEngine` generates the same IR.
+
 ## 6. Architecture
 
 ```

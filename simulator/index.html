@@ -144,6 +144,16 @@ const DEFAULT_PARAMS = {
     voice:   { max_partials: 3, bloom_scale: 1.0, motion_gate: false, slew: true,  base_gain: 1.0, am_depth_scale: 1.0 },
     shimmer: { share_one_in: 6, max_partials: 4, bloom_scale: 1.0, motion_gate: true,  slew: true,  base_gain: 0.5, am_depth_scale: 1.5 },
   },
+  timbre: {
+    loudness_ref_hz: 300,
+    loudness_exponent: 0.5,
+    shelf_freq_hz: 1800,
+    shelf_gain_db: -7,
+    lowpass_hz: 4200,
+    reverb_wet: 0.3,
+    reverb_decay_s: 5.5,
+    reverb_damp_hz: 3000,
+  },
   drift: {
     fingerprint_max_cents: 12,
     fingerprint_tau_s: 90,
@@ -846,6 +856,32 @@ function buildAudio() {
   }
 }
 
+// Generated impulse response: high-damped exponential-decay noise (no samples
+// needed). Regenerated when decay/damp params change.
+function rebuildReverbIR() {
+  const A = sim.audio;
+  if (!A) return;
+  const T = sim.params.timbre;
+  const cfg = `${T.reverb_decay_s}|${T.reverb_damp_hz}`;
+  if (A.irCfg === cfg) return;
+  A.irCfg = cfg;
+  const sr = A.ctx.sampleRate;
+  const len = Math.max(1, Math.floor(T.reverb_decay_s * sr));
+  const ir = A.ctx.createBuffer(2, len, sr);
+  const rng = mulberry32(1234);
+  const dampA = 1 - Math.exp(-2 * Math.PI * T.reverb_damp_hz / sr);
+  for (let ch = 0; ch < 2; ch++) {
+    const data = ir.getChannelData(ch);
+    let lp = 0;
+    for (let i = 0; i < len; i++) {
+      const env = Math.exp(-6.9 * i / len); // ~RT60 over the buffer
+      lp += ((rng() * 2 - 1) - lp) * dampA;
+      data[i] = lp * env;
+    }
+  }
+  A.convolver.buffer = ir;
+}
+
 function disposeAudio() {
   for (const a of sim.agents) {
     if (!a.audio) continue;
@@ -872,14 +908,25 @@ function applyAudio(now) {
     pseudo_octave_ratio: eff.stretch ?? eff.spectrum.ratios[1],
     scale_cents: eff.scale_cents,
   } : sim.scale;
+  // live voicing params (spec §5.5)
+  const T = sim.params.timbre;
+  sim.audio.shelf.frequency.setTargetAtTime(T.shelf_freq_hz, now, 0.1);
+  sim.audio.shelf.gain.setTargetAtTime(T.shelf_gain_db, now, 0.1);
+  sim.audio.lowpass.frequency.setTargetAtTime(T.lowpass_hz, now, 0.1);
+  sim.audio.dryGain.gain.setTargetAtTime(Math.cos(T.reverb_wet * Math.PI / 2), now, 0.1);
+  sim.audio.wetGain.gain.setTargetAtTime(Math.sin(T.reverb_wet * Math.PI / 2), now, 0.1);
+  rebuildReverbIR();
   for (const a of sim.agents) {
     if (!a.audio) continue;
     const roleP = sim.params.roles[a.role];
     const o = a.out;
     const pitch = pitchHzFor(effScaleObj, a.degreeIndex, a.register);
     for (let k = 0; k < 4; k++) {
-      a.audio.oscs[k].frequency.setTargetAtTime(pitch * ratios[k], now, 2.0);
-      a.audio.pGains[k].gain.setTargetAtTime(o.partialGains[k], now, 0.08);
+      const f = pitch * ratios[k];
+      // equal-loudness tilt: high partials recede (spec §5.5)
+      const w = Math.min(1, Math.pow(T.loudness_ref_hz / f, T.loudness_exponent));
+      a.audio.oscs[k].frequency.setTargetAtTime(f, now, 2.0);
+      a.audio.pGains[k].gain.setTargetAtTime(o.partialGains[k] * w, now, 0.08);
       a.audio.oscs[k].detune.setTargetAtTime(o.detuneCents + a.fpCents, now, 0.08);
     }
     // spatialization relative to the listener
@@ -1025,6 +1072,15 @@ const PARAM_DEFS = [
     ['shimmer_am.depth_wind', 'AM depth × wind', 0, 0.8, 0.01],
     ['breath.period_s', 'breath period (s)', 10, 180, 5],
     ['breath.ensemble_depth', 'breath depth', 0, 0.3, 0.01],
+  ]},
+  { group: 'Timbre (voicing)', items: [
+    ['timbre.loudness_exponent', 'loudness tilt', 0, 1, 0.05],
+    ['timbre.shelf_gain_db', 'high shelf (dB)', -18, 0, 0.5],
+    ['timbre.shelf_freq_hz', 'shelf freq (Hz)', 800, 4000, 50],
+    ['timbre.lowpass_hz', 'lowpass (Hz)', 1000, 9000, 100],
+    ['timbre.reverb_wet', 'reverb wet', 0, 1, 0.02],
+    ['timbre.reverb_decay_s', 'reverb decay (s)', 1, 10, 0.5],
+    ['timbre.reverb_damp_hz', 'reverb damping (Hz)', 500, 8000, 100],
   ]},
   { group: 'BLE sensing', items: [
     ['sensing.rssi_ema_tau_s', 'RSSI smoothing τ (s)', 0.5, 10, 0.1],
@@ -1264,8 +1320,19 @@ document.getElementById('startBtn').onclick = async () => {
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
   const comp = new DynamicsCompressorNode(ctx, { threshold: -18, knee: 20, ratio: 6, attack: 0.01, release: 0.3 });
   const master = new GainNode(ctx, { gain: 1 });
-  comp.connect(master);
-  sim.audio = { ctx, comp, master, bgEl: null };
+  // voicing chain (spec §5.5): tone shaping + dark reverb = the sound bath
+  const T = sim.params.timbre;
+  const shelf = new BiquadFilterNode(ctx, { type: 'highshelf', frequency: T.shelf_freq_hz, gain: T.shelf_gain_db });
+  const lowpass = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: T.lowpass_hz, Q: 0.5 });
+  const dryGain = new GainNode(ctx, { gain: Math.cos(T.reverb_wet * Math.PI / 2) });
+  const wetGain = new GainNode(ctx, { gain: Math.sin(T.reverb_wet * Math.PI / 2) });
+  const convolver = new ConvolverNode(ctx);
+  comp.connect(shelf).connect(lowpass);
+  lowpass.connect(dryGain).connect(master);
+  lowpass.connect(convolver).connect(wetGain).connect(master);
+  sim.audio = { ctx, comp, master, shelf, lowpass, dryGain, wetGain, convolver,
+    irCfg: null, bgEl: null };
+  rebuildReverbIR();
 
   // Background survival (iOS Safari): route output through an <audio> element
   // playing a MediaStream, with Media Session metadata — the page is then a
