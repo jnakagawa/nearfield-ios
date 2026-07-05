@@ -21,7 +21,9 @@ python3 -m http.server 8123        # from repo root
 ```
 
 Tap BEGIN (sound needs a user gesture). Drag dots to move people, drag ◎ to move your
-ear. All reward-model constants are live sliders; `Export params.json` writes the tuning
+ear. **Tap a dot (without dragging) to open that phone's screen** — the live
+interference-topography visual (spec §14), driven by that agent's real state; identity
+studies live at `simulator/visuals.html`. All reward-model constants are live sliders; `Export params.json` writes the tuning
 that real phones will consume. The "ideal sensing" checkbox A/Bs perfect knowledge vs
 the realistic noisy-BLE model.
 

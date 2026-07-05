@@ -49,6 +49,23 @@
   }
   #overlay .hint { color: #9aa0b4; max-width: 420px; text-align: center; font-size: 13px; }
   .sceneActive { border-color: #6a6aff !important; }
+  #phoneView {
+    position: absolute; left: 16px; top: 16px; z-index: 6; display: none;
+    width: 240px; background: #fff; border: 1px solid #33333e; border-radius: 18px;
+    overflow: hidden; box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  }
+  #phoneView.dark { background: #000; }
+  #phoneHead {
+    display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+    font-size: 11px; letter-spacing: 0.06em; color: #555; background: transparent;
+    position: absolute; top: 0; left: 0; right: 0; z-index: 2;
+  }
+  #phoneView.dark #phoneHead { color: #999; }
+  #phoneHead button {
+    margin-left: auto; background: none; border: 1px solid currentColor; color: inherit;
+    border-radius: 999px; font-size: 11px; padding: 1px 8px;
+  }
+  #phoneCanvas { position: relative; inset: auto; display: block; width: 240px; height: 480px; }
 </style>
 </head>
 <body>
@@ -60,6 +77,14 @@
 <div id="main">
   <div id="stage">
     <canvas id="room"></canvas>
+    <div id="phoneView">
+      <div id="phoneHead">
+        <span id="phoneLabel">—</span>
+        <button id="phoneInvert">◐</button>
+        <button id="phoneClose">✕</button>
+      </div>
+      <canvas id="phoneCanvas"></canvas>
+    </div>
     <div id="overlay">
       <button id="startBtn">BEGIN</button>
       <div class="hint">Sound starts on tap (browser rule). Drag dots to move people;
@@ -659,6 +684,7 @@ function setPath(obj, path, v) {
 
 function makeAgents(n) {
   disposeAudio();
+  if (typeof closePhoneView === 'function' && phone.agentId !== null) closePhoneView();
   const assigns = assignRoles(n, sim.scale, sim.params);
   const anchorCount = assigns.filter(a => a.role === 'anchor').length;
   const nonAnchors = assigns.filter(a => a.role !== 'anchor').length;
@@ -1013,11 +1039,181 @@ function draw() {
       cx.beginPath(); cx.arc(px(a.x), py(a.y), rad + 3, 0, 2 * Math.PI); cx.stroke();
     }
   }
+  // selected agent (phone view open)
+  if (phone.agentId !== null) {
+    const sel = sim.agents.find(x => x.id === phone.agentId);
+    if (sel) {
+      cx.strokeStyle = '#6a6aff'; cx.lineWidth = 1.5;
+      cx.beginPath(); cx.arc(px(sel.x), py(sel.y), 14, 0, 2 * Math.PI); cx.stroke();
+    }
+  }
   // listener
   const lx = px(sim.listener.x), ly = py(sim.listener.y);
   cx.strokeStyle = '#9aa0b4'; cx.lineWidth = 1.5;
   cx.beginPath(); cx.arc(lx, ly, 9, 0, 2 * Math.PI); cx.stroke();
   cx.beginPath(); cx.arc(lx, ly, 2.5, 0, 2 * Math.PI); cx.fillStyle = '#9aa0b4'; cx.fill();
+}
+
+// --- phone view: the §14 interference-topography screen, per agent, live -------
+
+const phone = {
+  agentId: null, dark: true, gl: null, prog: null,
+  beatPhases: new Map(), // peerId -> accumulated fringe phase
+  centers: null, centerSeedRng: null, lastT: 0,
+};
+
+const PHONE_FS = `
+#extension GL_OES_standard_derivatives : enable
+precision highp float;
+uniform vec2 res;
+uniform float ink, density, breathScale;
+uniform vec2 meC[4];
+uniform float meLam[4], meW[4];
+uniform vec2 peerC[3];
+uniform float peerLam[3], peerW[3], peerPhase[3];
+float hair(float v, float n, float w) {
+  float q = v * n;
+  float d = abs(fract(q) - 0.5) / (fwidth(q) + 1e-5);
+  return 1.0 - smoothstep(w, w + 1.0, d);
+}
+void main(){
+  vec2 uv = (gl_FragCoord.xy - 0.5*res) / min(res.x, res.y);
+  uv *= breathScale;
+  float v = 0.0; float g = 1e-4;
+  for (int k = 0; k < 4; k++) {
+    v += meW[k] * cos(6.2831853 * length(uv - meC[k]) / meLam[k]);
+    g += meW[k];
+  }
+  for (int j = 0; j < 3; j++) {
+    v += peerW[j] * cos(6.2831853 * length(uv - peerC[j]) / peerLam[j] + peerPhase[j]);
+    g += peerW[j];
+  }
+  v = v / g;
+  float c = hair(v, density, 0.7);
+  float lum = mix(1.0 - c, c, ink);
+  gl_FragColor = vec4(vec3(lum), 1.0);
+}`;
+
+function initPhoneGL() {
+  const c = document.getElementById('phoneCanvas');
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  c.width = 240 * dpr; c.height = 480 * dpr;
+  const g = c.getContext('webgl', { antialias: true });
+  g.getExtension('OES_standard_derivatives');
+  const compile = (type, src) => {
+    const sh = g.createShader(type);
+    g.shaderSource(sh, src); g.compileShader(sh);
+    if (!g.getShaderParameter(sh, g.COMPILE_STATUS)) throw new Error(g.getShaderInfoLog(sh));
+    return sh;
+  };
+  const prog = g.createProgram();
+  g.attachShader(prog, compile(g.VERTEX_SHADER, 'attribute vec2 p; void main(){ gl_Position = vec4(p,0.,1.); }'));
+  g.attachShader(prog, compile(g.FRAGMENT_SHADER, PHONE_FS));
+  g.linkProgram(prog);
+  if (!g.getProgramParameter(prog, g.LINK_STATUS)) throw new Error(g.getProgramInfoLog(prog));
+  const quad = g.createBuffer();
+  g.bindBuffer(g.ARRAY_BUFFER, quad);
+  g.bufferData(g.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), g.STATIC_DRAW);
+  phone.gl = g; phone.prog = prog;
+}
+
+function openPhoneView(agentId) {
+  phone.agentId = agentId;
+  phone.beatPhases = new Map();
+  // per-agent seeded center layout (§14.2: fingerprint seed shapes the screen)
+  const r = mulberry32(fnv1a(`${agentId}|${sim.perfSeed}|visual`));
+  phone.centers = Array.from({ length: 4 }, () => ({
+    x: (r() - 0.5) * 2.2, y: (r() - 0.5) * 2.2,
+    wob: r() * Math.PI * 2, rate: 0.03 + r() * 0.04,
+  }));
+  if (!phone.gl) initPhoneGL();
+  document.getElementById('phoneView').style.display = 'block';
+  document.getElementById('phoneView').classList.toggle('dark', phone.dark);
+}
+function closePhoneView() { phone.agentId = null; document.getElementById('phoneView').style.display = 'none'; }
+document.getElementById('phoneClose').onclick = closePhoneView;
+document.getElementById('phoneInvert').onclick = () => {
+  phone.dark = !phone.dark;
+  document.getElementById('phoneView').classList.toggle('dark', phone.dark);
+};
+
+function soundingHz(a) {
+  return a.pitchHz * Math.pow(2, (a.out.detuneCents + a.fpCents) / 1200);
+}
+
+// pitch -> ring spacing, compressed so registers differ without exploding
+// density at phone scale; clamped against sub-hairline spacing
+function lamFor(fHz) {
+  return Math.max(0.32 * Math.pow(220 / fHz, 0.7), 0.06);
+}
+
+function drawPhone(dt) {
+  const a = sim.agents.find(x => x.id === phone.agentId);
+  if (!a) { closePhoneView(); return; }
+  const g = phone.gl, prog = phone.prog;
+  const ratios = (sim.effScale ? sim.effScale.spectrum.ratios : sim.scale.spectrum.ratios);
+  const fpAmp = sim.scoreOn && sim.scoreNow ? sim.scoreNow.fingerprintAmplitude : 1;
+  const comp = sim.scoreOn ? sim.compression : 1;
+  const fMe = soundingHz(a);
+
+  // my 4 families: seeded orbiting centers; final gong merges them (§14.1)
+  const cx = phone.centers.reduce((s, c) => s + c.x, 0) / 4;
+  const cy = phone.centers.reduce((s, c) => s + c.y, 0) / 4;
+  const meC = [], meLam = [], meW = [];
+  for (let k = 0; k < 4; k++) {
+    const c = phone.centers[k];
+    let x = c.x + 0.06 * Math.sin(sim.t * c.rate + c.wob);
+    let y = c.y + 0.06 * Math.cos(sim.t * c.rate * 0.9 + c.wob);
+    x = x + (cx - x) * (1 - fpAmp); y = y + (cy - y) * (1 - fpAmp);
+    meC.push(x, y);
+    meLam.push(lamFor(a.pitchHz * ratios[k]));
+    meW.push(a.out.partialGains[k]);
+  }
+
+  // top peers by encounter envelope; fringe phase advances at the TRUE beat rate
+  const peers = [...a.reward.E.entries()]
+    .map(([id, E]) => ({ id, E, peer: sim.agents.find(x => x.id === id) }))
+    .filter(p => p.peer && p.E > 0.01)
+    .sort((p, q) => q.E - p.E).slice(0, 3);
+  const peerC = [], peerLam = [], peerW = [], peerPhase = [];
+  for (let j = 0; j < 3; j++) {
+    const p = peers[j];
+    if (p) {
+      const ang = (fnv1a(`${p.id}|azimuth`) % 6283) / 1000;
+      const rad = 1.3 - 1.05 * p.E;
+      peerC.push(Math.cos(ang) * rad, Math.sin(ang) * rad);
+      peerLam.push(lamFor(soundingHz(p.peer)));
+      peerW.push(p.E);
+      const beatHz = Math.min(Math.abs(fMe - soundingHz(p.peer)), 4);
+      const ph = (phone.beatPhases.get(p.id) ?? 0) + 2 * Math.PI * beatHz * dt * comp;
+      phone.beatPhases.set(p.id, ph);
+      peerPhase.push(ph);
+    } else { peerC.push(9, 9); peerLam.push(1); peerW.push(0); peerPhase.push(0); }
+  }
+
+  const phi = 2 * Math.PI * ((sim.t * comp) % sim.params.breath.period_s) / sim.params.breath.period_s;
+  g.viewport(0, 0, g.canvas.width, g.canvas.height);
+  g.useProgram(prog);
+  const loc = n => g.getUniformLocation(prog, n);
+  g.uniform2f(loc('res'), g.canvas.width, g.canvas.height);
+  g.uniform1f(loc('ink'), phone.dark ? 1 : 0);
+  g.uniform1f(loc('density'), 2 + 2 * a.out.W);            // wind -> line density
+  g.uniform1f(loc('breathScale'), 1 + 0.02 * Math.sin(phi));
+  g.uniform2fv(loc('meC'), meC);
+  g.uniform1fv(loc('meLam'), meLam);
+  g.uniform1fv(loc('meW'), meW);
+  g.uniform2fv(loc('peerC'), peerC);
+  g.uniform1fv(loc('peerLam'), peerLam);
+  g.uniform1fv(loc('peerW'), peerW);
+  g.uniform1fv(loc('peerPhase'), peerPhase);
+  const pAttr = g.getAttribLocation(prog, 'p');
+  g.enableVertexAttribArray(pAttr);
+  g.vertexAttribPointer(pAttr, 2, g.FLOAT, false, 0, 0);
+  g.drawArrays(g.TRIANGLES, 0, 3);
+
+  const det = a.out.detuneCents + a.fpCents;
+  document.getElementById('phoneLabel').textContent =
+    `#${a.id} · ${a.role} · ${fMe.toFixed(1)} Hz (${det >= 0 ? '+' : ''}${det.toFixed(1)}¢)`;
 }
 
 // --- pointer interaction --------------------------------------------------------
@@ -1035,7 +1231,11 @@ canvas.addEventListener('pointerdown', ev => {
       const d = Math.hypot(x - a.x, y - a.y);
       if (d < bd) { bd = d; best = a; }
     }
-    if (best) { dragging = { kind: 'agent', agent: best }; best.drag = { x: best.x, y: best.y }; }
+    if (best) {
+      dragging = { kind: 'agent', agent: best, t0: performance.now(),
+        start: [ev.clientX, ev.clientY], last: [ev.clientX, ev.clientY] };
+      best.drag = { x: best.x, y: best.y };
+    }
   }
   canvas.setPointerCapture(ev.pointerId);
 });
@@ -1045,10 +1245,16 @@ canvas.addEventListener('pointermove', ev => {
   const x = clamp((ev.clientX - rect.left - view.ox) / view.s, 0.3, ROOM_W - 0.3);
   const y = clamp((ev.clientY - rect.top - view.oy) / view.s, 0.3, ROOM_H - 0.3);
   if (dragging.kind === 'listener') { sim.listener.x = x; sim.listener.y = y; }
-  else dragging.agent.drag = { x, y };
+  else { dragging.agent.drag = { x, y }; dragging.last = [ev.clientX, ev.clientY]; }
 });
 window.addEventListener('pointerup', () => {
-  if (dragging?.kind === 'agent') dragging.agent.drag = null;
+  if (dragging?.kind === 'agent') {
+    dragging.agent.drag = null;
+    const moved = Math.hypot(dragging.last[0] - dragging.start[0], dragging.last[1] - dragging.start[1]);
+    if (performance.now() - dragging.t0 < 300 && moved < 8) {
+      openPhoneView(dragging.agent.id);   // tap (not drag): show that phone's screen
+    }
+  }
   dragging = null;
 });
 
@@ -1302,9 +1508,13 @@ function tickWall() {
 
 function frame() {
   requestAnimationFrame(frame);
+  const now = performance.now();
+  const phoneDt = Math.min((now - (phone.lastT || now)) / 1000, 0.1);
+  phone.lastT = now;
   tickWall();
   if (!sim.running) return;
   draw();
+  if (phone.agentId !== null) drawPhone(phoneDt);
   updateStats();
 }
 
