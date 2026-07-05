@@ -14,7 +14,7 @@ final class HubClient: ObservableObject {
 
     @Published var state: State = .idle
     @Published var assignment: AssignMessage?
-    @Published var host: String = UserDefaults.standard.string(forKey: "hubHost") ?? "127.0.0.1:8765"
+    @Published var host: String = UserDefaults.standard.string(forKey: "hubHost") ?? "127.0.0.1:8770"
 
     private var task: URLSessionWebSocketTask?
     private var reconnectDelay: TimeInterval = 1

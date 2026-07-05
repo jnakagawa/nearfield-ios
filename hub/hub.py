@@ -6,7 +6,7 @@ pitch and role from the derived scale, delivers all configs in the `assign`
 payload (phones free-run if the hub disappears), broadcasts the score position
 at 1 Hz while the score runs, and accepts telemetry for the dashboard.
 
-Usage: python3 hub.py [--port 8765] [--performance-id <pin>] [--start-score]
+Usage: python3 hub.py [--port 8770] [--performance-id <pin>] [--start-score]
 """
 
 import argparse
@@ -158,7 +158,7 @@ class Hub:
 
 async def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--port", type=int, default=8770)
     p.add_argument("--config-dir", default=str(Path(__file__).resolve().parent.parent / "config"))
     p.add_argument("--performance-id", type=int, default=None,
                    help="pin to replay a performance's tuning (default: launch timestamp)")

@@ -33,10 +33,21 @@ fingerprints. Set *time compression* to 8× or 16× to audition the whole piece 
 minutes. The *performance seed* makes each performance's detuning unique — pin a seed to
 replay it exactly.
 
+**Hum (hub + phones playing the tuning):**
+
+```bash
+python3 hub/hub.py                 # coordination server on :8770
+# then run the NearfieldEnsemble target (Xcode or simulator);
+# on a real device, enter the Mac's LAN/tailnet IP as <host>:8770
+```
+
+The app auto-joins on launch and keeps its assignment across reconnects (the hub keys
+by device id). Pin `--performance-id` to replay a performance's tuning.
+
 **Tests:**
 
 ```bash
-python3 -m pytest tuning/                    # scale derivation
+python3 -m pytest tuning/ hub/               # scale derivation + hub protocol
 node --test simulator/tests/core.test.mjs    # reward model + BLE pipeline
 ```
 
