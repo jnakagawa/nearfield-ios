@@ -450,7 +450,7 @@ Object.assign(globalThis, {
 // ============================================================================
 'use strict';
 
-const ROOM_W = 12, ROOM_H = 8;             // meters
+const ROOM_W = 16, ROOM_H = 10;            // meters
 const TICK_S = 0.2;                        // sensing/reward cadence (5 Hz, spec §5.1)
 const ROLE_COLORS = { anchor: '#4a6cd4', voice: '#e8e2d2', shimmer: '#59d6d6' };
 
@@ -538,6 +538,8 @@ function stepPhysics(dt) {
       a.x = a.drag.x; a.y = a.drag.y;
     } else if (sim.preset === 'still') {
       a.vx = a.vy = 0;
+    } else if (a.role === 'anchor' && sim.preset !== 'drift') {
+      ouStep(a, dt, 0.12 * speed); // anchors barely move: the gravitational field
     } else if (sim.preset === 'drift') {
       ouStep(a, dt, 0.5 * speed);
     } else if (sim.preset === 'flock') {
@@ -559,7 +561,7 @@ function stepPhysics(dt) {
         if (!D.point || D.timer <= 0) {
           D.point = { x: 0.8 + (ROOM_W - 1.6) * sim.rng(), y: 0.8 + (ROOM_H - 1.6) * sim.rng() };
           D.timer = 3 + 5 * sim.rng();
-          if (sim.rng() < 0.6 && sim.agents.length > 1) {
+          if (sim.rng() < 0.35 && sim.agents.length > 1) {
             D.phase = 'seek';
             do { D.target = sim.agents[Math.floor(sim.rng() * sim.agents.length)].id; }
             while (D.target === a.id);
@@ -584,6 +586,21 @@ function stepPhysics(dt) {
     // smoothed speed -> motion energy proxy (calm walk 0.7 m/s ~ 0.5)
     const sp = Math.hypot(a.vx, a.vy);
     a.speedSm += (sp - a.speedSm) * emaAlpha(dt, sim.params.wind.motion_ema_tau_s);
+  }
+  // personal space: bodies don't stack (skip in 'still' so posed scenes hold)
+  if (sim.preset !== 'still') {
+    for (const a of sim.agents) {
+      for (const b of sim.agents) {
+        if (b.id <= a.id || a.drag || b.drag) continue;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const d = Math.hypot(dx, dy);
+        if (d < 0.55 && d > 1e-4) {
+          const push = (0.55 - d) * 0.5;
+          a.x -= dx / d * push; a.y -= dy / d * push;
+          b.x += dx / d * push; b.y += dy / d * push;
+        }
+      }
+    }
   }
 }
 
@@ -928,26 +945,52 @@ function exportParams() {
 
 // --- main loop --------------------------------------------------------------------
 
-let lastTs = null;
-function frame(ts) {
-  requestAnimationFrame(frame);
-  if (lastTs === null) { lastTs = ts; return; }
-  const dt = Math.min((ts - lastTs) / 1000, 0.05);
-  lastTs = ts;
-  if (!sim.running) return;
-  sim.t += dt;
-  stepPhysics(dt);
-  sim.tickAcc += dt;
-  while (sim.tickAcc >= TICK_S) { stepModel(TICK_S); sim.tickAcc -= TICK_S; }
+// The model is driven by wall-clock time from whichever driver is alive:
+// rAF when the window is visible, a fallback interval when Chrome throttles
+// rAF (background/occluded window) — audio must keep evolving either way.
+let lastAdvance = performance.now();
+
+function advance(elapsedS) {
+  let rem = Math.min(elapsedS, 2); // cap catch-up after long throttling
+  while (rem > 1e-4) {
+    const dt = Math.min(rem, TICK_S);
+    sim.t += dt;
+    stepPhysics(dt);
+    sim.tickAcc += dt;
+    while (sim.tickAcc >= TICK_S) { stepModel(TICK_S); sim.tickAcc -= TICK_S; }
+    rem -= dt;
+  }
   if (sim.audio) applyAudio(sim.audio.ctx.currentTime);
+}
+
+function tickWall() {
+  const now = performance.now();
+  const elapsed = (now - lastAdvance) / 1000;
+  lastAdvance = now;
+  if (sim.running) advance(elapsed);
+}
+
+function frame() {
+  requestAnimationFrame(frame);
+  tickWall();
+  if (!sim.running) return;
   draw();
   updateStats();
 }
 
-let statAcc = 0;
-function updateStats() {
-  statAcc += 1;
-  if (statAcc % 20 !== 0) return;
+// fallback driver: only steps when rAF has starved for >350 ms
+setInterval(() => {
+  if (performance.now() - lastAdvance > 350) {
+    tickWall();
+    if (sim.running) { draw(); updateStats(true); }
+  }
+}, 200);
+
+let lastStats = 0;
+function updateStats(force) {
+  const now = performance.now();
+  if (!force && now - lastStats < 400) return;
+  lastStats = now;
   let enc = 0, sumB = 0, sumW = 0;
   for (const a of sim.agents) {
     sumB += a.out.B; sumW += a.out.W;
@@ -974,7 +1017,7 @@ document.getElementById('startBtn').onclick = async () => {
 (async function init() {
   await loadConfigs();
   resize();
-  makeAgents(24);
+  makeAgents(20);
   buildPanel();
   draw();
   requestAnimationFrame(frame);
