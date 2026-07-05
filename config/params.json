@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "sensing": {
+    "tick_hz": 5,
+    "rssi_ema_tau_s": 3.0,
+    "rssi_near_enter_dbm": -50,
+    "rssi_near_exit_dbm": -56,
+    "rssi_mid_enter_dbm": -62,
+    "rssi_mid_exit_dbm": -66,
+    "far_timeout_s": 10,
+    "encounter_on_s": 2.0,
+    "encounter_off_s": 4.0,
+    "tx_offset_by_model": {}
+  },
+  "wind": {
+    "alpha_motion_per_s": 0.15,
+    "alpha_novelty_per_s": 0.3,
+    "tau_wind_s": 30,
+    "motion_accel_max_g": 0.5,
+    "motion_ema_tau_s": 1.0,
+    "novelty_window_s": 60
+  },
+  "encounter": {
+    "tau_attack_s": 6,
+    "tau_release_s": 8,
+    "tau_familiarity_s": 25,
+    "tau_familiarity_release_s": 45
+  },
+  "bloom": {
+    "beta_familiarity": 0.7,
+    "gain_base": 0.4,
+    "gain_wind": 0.6,
+    "partial_thresholds": [0.15, 0.4, 0.65],
+    "threshold_width": 0.2,
+    "gain_attack_s": 0.5,
+    "gain_release_s": 3.0
+  },
+  "slew": {
+    "cents_start": 10,
+    "cents_per_s_max": 6,
+    "dip_max_distance_cents": 60
+  },
+  "shimmer_am": {
+    "rate_base_hz": 0.1,
+    "rate_motion_hz": 2.5,
+    "depth_wind": 0.25
+  },
+  "breath": {
+    "period_s": 60,
+    "ensemble_depth": 0.08
+  },
+  "roles": {
+    "anchor": {
+      "share_one_in": 8,
+      "max_partials": 2,
+      "bloom_scale": 0.0,
+      "motion_gate": false,
+      "slew": false,
+      "base_gain": 1.0,
+      "am_depth_scale": 0.5
+    },
+    "voice": {
+      "max_partials": 3,
+      "bloom_scale": 1.0,
+      "motion_gate": false,
+      "slew": true,
+      "base_gain": 1.0,
+      "am_depth_scale": 1.0
+    },
+    "shimmer": {
+      "share_one_in": 6,
+      "max_partials": 4,
+      "bloom_scale": 1.0,
+      "motion_gate": true,
+      "slew": true,
+      "base_gain": 0.5,
+      "am_depth_scale": 1.5
+    }
+  },
+  "ble_model": {
+    "p0_dbm": -45,
+    "path_loss_n": 2.2,
+    "shadow_sigma_db": 6,
+    "body_block_db": -10,
+    "body_block_rate_per_min": 2,
+    "body_block_dur_s": [2, 8]
+  }
+}
