@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Nearfield — Leaves in the Wind (simulator)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<div id="app">loading…</div>
+
+<script id="nearfield-core">
+// ============================================================================
+// Nearfield core — pure logic, no DOM/AudioContext. This block is extracted
+// and unit-tested headlessly by tests/core.test.mjs, and is the reference
+// implementation of spec §5 (docs/superpowers/specs/2026-07-04-crowd-ensemble-design.md).
+// The Swift RewardModel must reproduce these trajectories (spec §9).
+// ============================================================================
+
+const DEFAULT_SCALE = {
+  version: 1,
+  base_freq_hz: 220.0,
+  spectrum: { ratios: [1.0, 2.07, 3.2, 4.4], amps: [1.0, 0.5, 0.3, 0.2] },
+  pseudo_octave_ratio: 2.07,
+  scale_cents: [0.0, 551.2, 754.0, 957.5],
+  dip_intervals_cents: [0.0, 551.2, 754.0, 957.5, 1259.6],
+  registers: { anchor: -1, voice: 0, shimmer: 1 },
+};
+
+const DEFAULT_PARAMS = {
+  version: 1,
+  sensing: {
+    tick_hz: 5,
+    rssi_ema_tau_s: 3.0,
+    rssi_near_enter_dbm: -50,
+    rssi_near_exit_dbm: -56,
+    rssi_mid_enter_dbm: -62,
+    rssi_mid_exit_dbm: -66,
+    far_timeout_s: 10,
+    encounter_on_s: 2.0,
+    encounter_off_s: 4.0,
+    tx_offset_by_model: {},
+  },
+  wind: {
+    alpha_motion_per_s: 0.15,
+    alpha_novelty_per_s: 0.3,
+    tau_wind_s: 30,
+    motion_accel_max_g: 0.5,
+    motion_ema_tau_s: 1.0,
+    novelty_window_s: 60,
+  },
+  encounter: {
+    tau_attack_s: 6,
+    tau_release_s: 8,
+    tau_familiarity_s: 25,
+    tau_familiarity_release_s: 45,
+  },
+  bloom: {
+    beta_familiarity: 0.7,
+    gain_base: 0.4,
+    gain_wind: 0.6,
+    partial_thresholds: [0.15, 0.4, 0.65],
+    threshold_width: 0.2,
+    gain_attack_s: 0.5,
+    gain_release_s: 3.0,
+  },
+  slew: {
+    cents_start: 10,
+    cents_per_s_max: 6,
+    dip_max_distance_cents: 60,
+  },
+  shimmer_am: {
+    rate_base_hz: 0.1,
+    rate_motion_hz: 2.5,
+    depth_wind: 0.25,
+  },
+  breath: {
+    period_s: 60,
+    ensemble_depth: 0.08,
+  },
+  roles: {
+    anchor:  { share_one_in: 8, max_partials: 2, bloom_scale: 0.0, motion_gate: false, slew: false, base_gain: 1.0, am_depth_scale: 0.5 },
+    voice:   { max_partials: 3, bloom_scale: 1.0, motion_gate: false, slew: true,  base_gain: 1.0, am_depth_scale: 1.0 },
+    shimmer: { share_one_in: 6, max_partials: 4, bloom_scale: 1.0, motion_gate: true,  slew: true,  base_gain: 0.5, am_depth_scale: 1.5 },
+  },
+  ble_model: {
+    p0_dbm: -45,
+    path_loss_n: 2.2,
+    shadow_sigma_db: 6,
+    body_block_db: -10,
+    body_block_rate_per_min: 2,
+    body_block_dur_s: [2, 8],
+  },
+};
+
+// --- small utilities --------------------------------------------------------
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function gaussian(rng) {
+  // Box-Muller
+  let u = 0, v = 0;
+  while (u === 0) u = rng();
+  while (v === 0) v = rng();
+  return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+}
+
+function emaAlpha(dt, tau) { return 1 - Math.exp(-dt / tau); }
+
+function clamp(x, lo, hi) { return x < lo ? lo : x > hi ? hi : x; }
+
+function smoothstep(x) { const t = clamp(x, 0, 1); return t * t * (3 - 2 * t); }
+
+function centsBetween(f1, f2) { return 1200 * Math.log2(f2 / f1); }
+
+// Fold an interval into [0, pseudoOctaveCents).
+function foldCents(c, pseudoOctaveCents) {
+  return ((c % pseudoOctaveCents) + pseudoOctaveCents) % pseudoOctaveCents;
+}
+
+// Nearest dip to a folded interval; the wrap makes 1259.6 equivalent to 0.
+function nearestDip(intervalCents, scale) {
+  const P = scale.dip_intervals_cents[scale.dip_intervals_cents.length - 1];
+  const folded = foldCents(intervalCents, P);
+  let best = null, bestDelta = Infinity;
+  for (const dip of scale.dip_intervals_cents) {
+    for (const cand of [dip, dip - P]) { // wrap-aware
+      const delta = cand - folded;
+      if (Math.abs(delta) < Math.abs(bestDelta)) { bestDelta = delta; best = dip; }
+    }
+  }
+  return { dip: best, delta: bestDelta };
+}
+
+// --- assignment (spec §6.1) -------------------------------------------------
+
+function pitchHzFor(scale, degreeIndex, register) {
+  return scale.base_freq_hz *
+    Math.pow(scale.pseudo_octave_ratio, register) *
+    Math.pow(2, scale.scale_cents[degreeIndex] / 1200);
+}
+
+function assignRoles(n, scale, params) {
+  const out = [];
+  let anchors = 0, shimmers = 0;
+  const anchorEvery = params.roles.anchor.share_one_in;
+  const shimmerEvery = params.roles.shimmer.share_one_in;
+  for (let i = 0; i < n; i++) {
+    let role = 'voice';
+    if (anchors < Math.ceil((i + 1) / anchorEvery)) { role = 'anchor'; anchors++; }
+    else if (shimmers < Math.ceil((i + 1) / shimmerEvery)) { role = 'shimmer'; shimmers++; }
+    const degreeIndex = i % scale.scale_cents.length;
+    const register = scale.registers[role];
+    out.push({ id: i, role, degreeIndex, register,
+      pitchHz: pitchHzFor(scale, degreeIndex, register) });
+  }
+  return out;
+}
+
+// --- BLE simulation (spec §7.3): ground-truth distance -> noisy RSSI --------
+
+class PairRadio {
+  constructor(params, rng) {
+    this.p = params.ble_model;
+    this.rng = rng;
+    this.blockRemaining = 0;
+  }
+  update(dt, distanceM) {
+    const p = this.p;
+    // random body-block events (Poisson-ish)
+    if (this.blockRemaining > 0) {
+      this.blockRemaining -= dt;
+    } else if (this.rng() < (p.body_block_rate_per_min / 60) * dt) {
+      const [lo, hi] = p.body_block_dur_s;
+      this.blockRemaining = lo + (hi - lo) * this.rng();
+    }
+    const d = Math.max(distanceM, 0.1);
+    let rssi = p.p0_dbm - 10 * p.path_loss_n * Math.log10(d);
+    rssi += gaussian(this.rng) * p.shadow_sigma_db;
+    if (this.blockRemaining > 0) rssi += p.body_block_db;
+    return rssi;
+  }
+}
+
+// --- sensing pipeline (spec §5.1): EMA -> hysteresis buckets -> encounters --
+
+class PairSensor {
+  constructor(params) {
+    this.p = params.sensing;
+    this.smoothed = null;
+    this.bucket = 'far';
+    this.sinceHeard = 0;
+    this.nearTime = 0;
+    this.awayTime = 0;
+    this.encounterActive = false;
+  }
+  update(dt, rawRssi) {
+    const p = this.p;
+    if (rawRssi === null || rawRssi === undefined) {
+      this.sinceHeard += dt;
+      if (this.sinceHeard > p.far_timeout_s) this.bucket = 'far';
+    } else {
+      this.sinceHeard = 0;
+      if (this.smoothed === null) this.smoothed = rawRssi;
+      else this.smoothed += (rawRssi - this.smoothed) * emaAlpha(dt, p.rssi_ema_tau_s);
+      const s = this.smoothed;
+      if (this.bucket === 'near') {
+        if (s < p.rssi_near_exit_dbm) this.bucket = s < p.rssi_mid_exit_dbm ? 'far' : 'mid';
+      } else if (this.bucket === 'mid') {
+        if (s >= p.rssi_near_enter_dbm) this.bucket = 'near';
+        else if (s < p.rssi_mid_exit_dbm) this.bucket = 'far';
+      } else {
+        if (s >= p.rssi_near_enter_dbm) this.bucket = 'near';
+        else if (s >= p.rssi_mid_enter_dbm) this.bucket = 'mid';
+      }
+    }
+    // encounter debounce
+    if (!this.encounterActive) {
+      this.nearTime = this.bucket === 'near' ? this.nearTime + dt : 0;
+      if (this.nearTime >= p.encounter_on_s) { this.encounterActive = true; this.awayTime = 0; }
+    } else {
+      this.awayTime = this.bucket !== 'near' ? this.awayTime + dt : 0;
+      if (this.awayTime >= p.encounter_off_s) { this.encounterActive = false; this.nearTime = 0; }
+    }
+    return { bucket: this.bucket, encounterActive: this.encounterActive };
+  }
+}
+
+// --- reward model (spec §5.2-§5.4) ------------------------------------------
+
+class RewardState {
+  constructor(me, params, scale) {
+    this.me = me;             // {id, role, pitchHz}
+    this.params = params;
+    this.scale = scale;
+    this.t = 0;
+    this.W = 0;
+    this.E = new Map();       // peerId -> envelope
+    this.F = new Map();       // peerId -> familiarity
+    this.contacts = new Map();// peerId -> {inContact, novel, contactStart, lastContactEnd}
+    this.partialGainsSm = [1, 0, 0, 0]; // smoothed output gains (partial 1 always on)
+    this.detuneOut = 0;
+  }
+
+  update(dt, inputs) {
+    const { encounters, buckets, motion, peerPitches } = inputs;
+    const p = this.params;
+    const roleP = p.roles[this.me.role];
+    this.t += dt;
+
+    // novelty (spec §5.1): a significant contact is novel if the previous
+    // contact with that peer ended more than novelty_window_s ago (or never
+    // existed); the flag persists for the first novelty_window_s of contact.
+    let significant = 0, novel = 0;
+    for (const [id, bucket] of buckets) {
+      const sig = bucket === 'near' || bucket === 'mid';
+      let c = this.contacts.get(id);
+      if (sig) {
+        if (!c || !c.inContact) {
+          const fresh = !c || (this.t - c.lastContactEnd) > p.wind.novelty_window_s;
+          c = { inContact: true, novel: fresh, contactStart: this.t,
+                lastContactEnd: c ? c.lastContactEnd : -Infinity };
+          this.contacts.set(id, c);
+        }
+        if (c.novel && this.t - c.contactStart > p.wind.novelty_window_s) c.novel = false;
+        significant++;
+        if (c.novel) novel++;
+      } else if (c && c.inContact) {
+        c.inContact = false;
+        c.lastContactEnd = this.t;
+      }
+    }
+    const novelty = significant > 0 ? novel / significant : 0;
+
+    // wind reservoir
+    this.W = clamp(
+      this.W + (p.wind.alpha_motion_per_s * motion +
+                p.wind.alpha_novelty_per_s * novelty -
+                this.W / p.wind.tau_wind_s) * dt,
+      0, 1);
+
+    // encounter envelopes + familiarity
+    for (const [id, active] of encounters) {
+      const e = this.E.get(id) ?? 0;
+      const f = this.F.get(id) ?? 0;
+      if (active) {
+        this.E.set(id, e + (1 - e) * emaAlpha(dt, p.encounter.tau_attack_s));
+        this.F.set(id, f + (1 - f) * emaAlpha(dt, p.encounter.tau_familiarity_s));
+      } else {
+        this.E.set(id, e * (1 - emaAlpha(dt, p.encounter.tau_release_s)));
+        this.F.set(id, f * (1 - emaAlpha(dt, p.encounter.tau_familiarity_release_s)));
+      }
+    }
+
+    // focus peer and bloom
+    const beta = p.bloom.beta_familiarity;
+    let focusId = null, focusScore = 0;
+    for (const [id, e] of this.E) {
+      const score = e * (1 - beta * (this.F.get(id) ?? 0));
+      if (score > focusScore) { focusScore = score; focusId = id; }
+    }
+    const Braw = focusScore * (p.bloom.gain_base + p.bloom.gain_wind * this.W);
+    const B = Braw * roleP.bloom_scale;
+
+    // partial gains (partial 1 always on; roles cap partial count, spec §5.4)
+    const amps = this.scale.spectrum.amps;
+    const gate = roleP.motion_gate ? clamp(2 * motion, 0, 1) : 1;
+    for (let k = 2; k <= 4; k++) {
+      let target = 0;
+      if (k <= roleP.max_partials) {
+        const th = p.bloom.partial_thresholds[k - 2];
+        target = amps[k - 1] * smoothstep((B - th) / p.bloom.threshold_width) * gate;
+      }
+      const g = this.partialGainsSm[k - 1];
+      const tau = target > g ? p.bloom.gain_attack_s : p.bloom.gain_release_s;
+      this.partialGainsSm[k - 1] = g + (target - g) * emaAlpha(dt, tau);
+    }
+
+    // resolution slew (spec §5.3): detune from assigned pitch, in cents.
+    // Nominal on-dip pairs (the common case by construction of the scale) start
+    // c_start off and slew in as E rises; off-dip nominal within the window also
+    // absorbs half the dip correction. Direction is id-asymmetric so the two
+    // phones start ~2*c_start apart.
+    let detuneTarget = 0;
+    if (roleP.slew && focusId !== null && peerPitches.has(focusId)) {
+      const nominal = centsBetween(this.me.pitchHz, peerPitches.get(focusId));
+      const { delta } = nearestDip(nominal, this.scale);
+      if (Math.abs(delta) <= p.slew.dip_max_distance_cents) {
+        const e = this.E.get(focusId) ?? 0;
+        const dir = this.me.id < focusId ? 1 : -1;
+        detuneTarget = dir * p.slew.cents_start * (1 - e) + 0.5 * delta * e;
+      }
+    }
+    const maxStep = p.slew.cents_per_s_max * dt;
+    this.detuneOut += clamp(detuneTarget - this.detuneOut, -maxStep, maxStep);
+
+    // shimmer AM
+    const amRate = p.shimmer_am.rate_base_hz + p.shimmer_am.rate_motion_hz * motion;
+    const amDepth = p.shimmer_am.depth_wind * this.W * roleP.am_depth_scale;
+
+    // prune dead envelopes
+    for (const [id, e] of this.E) {
+      if (e < 0.001 && !(encounters.get(id))) { this.E.delete(id); }
+    }
+
+    return {
+      W: this.W, B, novelty, focusId,
+      E: focusId !== null ? (this.E.get(focusId) ?? 0) : 0,
+      F: focusId !== null ? (this.F.get(focusId) ?? 0) : 0,
+      partialGains: [...this.partialGainsSm],
+      detuneCents: this.detuneOut,
+      amRate, amDepth,
+    };
+  }
+}
+
+// breath phase multiplier (spec §5.3); phase phi in radians
+function breathGain(phi, params) {
+  return 1 + params.breath.ensemble_depth * Math.sin(phi);
+}
+function anchorSwell(phi, offset) {
+  return 0.5 + 0.5 * Math.sin(phi + offset);
+}
+
+// Explicit exports: lexical top-level bindings are not reachable from a
+// vm sandbox (tests) nor listed on window; this is the core's public surface.
+Object.assign(globalThis, {
+  DEFAULT_SCALE, DEFAULT_PARAMS,
+  mulberry32, gaussian, emaAlpha, clamp, smoothstep,
+  centsBetween, foldCents, nearestDip,
+  pitchHzFor, assignRoles,
+  PairRadio, PairSensor, RewardState,
+  breathGain, anchorSwell,
+});
+</script>
+
+<script>
+// UI/audio shell arrives in the next commit; core above is test-covered.
+document.getElementById('app').textContent =
+  'Nearfield simulator core loaded — UI coming in Task 5.';
+</script>
+</body>
+</html>
