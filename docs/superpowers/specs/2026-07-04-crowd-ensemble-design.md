@@ -99,13 +99,15 @@ non-Western.
 ### 4.2 Scale derivation (offline)
 
 A Python script (`tuning/derive_scale.py`) computes the Sethares dissonance curve of the
-spectrum against itself across one pseudo-octave, locates the dips, and selects 5–7 scale
-degrees. It emits:
+spectrum against itself across one pseudo-octave, locates the dips, and takes them as the
+scale degrees — 4 interior degrees for this ≤4-partial spectrum (few partials → few
+coincidence intervals, §2.3; density is comparable to slendro's 5-per-octave given the
+1259-cent pseudo-octave). It emits:
 
 - `config/scale.json` — the machine-readable contract consumed by hub, app, and simulator
 - `tuning/plots/` — dissonance-curve plots with chosen degrees marked, committed for review
 
-`scale.json` schema (values below illustrative until the script runs):
+`scale.json` schema (values are the actual generated output):
 
 ```json
 {
@@ -113,8 +115,8 @@ degrees. It emits:
   "base_freq_hz": 220.0,
   "spectrum": { "ratios": [1.0, 2.07, 3.2, 4.4], "amps": [1.0, 0.5, 0.3, 0.2] },
   "pseudo_octave_ratio": 2.07,
-  "scale_cents": [0, 187, 356, 552, 764, 951],
-  "dip_intervals_cents": [0, 187, 356, 552, 764, 951, 1259],
+  "scale_cents": [0.0, 551.2, 754.0, 957.5],
+  "dip_intervals_cents": [0.0, 551.2, 754.0, 957.5, 1259.6],
   "registers": { "anchor": -1, "voice": 0, "shimmer": 1 }
 }
 ```
