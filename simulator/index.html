@@ -578,7 +578,7 @@ const TICK_S = 0.2;                        // sensing/reward cadence (5 Hz, spec
 const ROLE_COLORS = { anchor: '#4a6cd4', voice: '#e8e2d2', shimmer: '#59d6d6' };
 
 const sim = {
-  params: null, scale: null,
+  params: null, scale: null, scoreData: null, scaleDrift: null,
   agents: [], listener: { x: ROOM_W / 2, y: ROOM_H / 2 },
   preset: 'dance', speed: 1.0, idealSensing: false,
   running: false, t: 0, tickAcc: 0,
@@ -586,6 +586,10 @@ const sim = {
   scenes: { A: null, B: null, active: 'A' },
   audio: null,   // {ctx, master, comp}
   masterVol: 0.5,
+  // score transport (spec §12) + performance seed (spec §13)
+  score: null, scoreOn: false, scoreT: 0, compression: 1,
+  scoreNow: null, effScale: null, gongStart: -1e9,
+  perfSeed: String(Math.floor(Date.now() / 1000)),
 };
 
 // --- config loading (fetch when served over http, embedded on file://) ------
@@ -593,14 +597,21 @@ const sim = {
 async function loadConfigs() {
   sim.scale = JSON.parse(JSON.stringify(DEFAULT_SCALE));
   sim.params = JSON.parse(JSON.stringify(DEFAULT_PARAMS));
+  sim.scoreData = JSON.parse(JSON.stringify(DEFAULT_SCORE));
+  sim.scaleDrift = JSON.parse(JSON.stringify(DEFAULT_SCALE_DRIFT));
   try {
-    const [s, p] = await Promise.all([
+    const [s, p, sc, sd] = await Promise.all([
       fetch('../config/scale.json').then(r => r.ok ? r.json() : null),
       fetch('../config/params.json').then(r => r.ok ? r.json() : null),
+      fetch('../config/score.json').then(r => r.ok ? r.json() : null),
+      fetch('../config/scale_drift.json').then(r => r.ok ? r.json() : null),
     ]);
     if (s) sim.scale = s;
     if (p) deepAssign(sim.params, p);
+    if (sc) sim.scoreData = sc;
+    if (sd) sim.scaleDrift = sd;
   } catch (_) { /* file:// or no server — embedded defaults are fine */ }
+  sim.score = new ScoreState(sim.scoreData, sim.params);
 }
 
 // merge src into dst in place, preserving object identity (live references
@@ -625,7 +636,9 @@ function makeAgents(n) {
   disposeAudio();
   const assigns = assignRoles(n, sim.scale, sim.params);
   const anchorCount = assigns.filter(a => a.role === 'anchor').length;
-  let anchorIdx = 0;
+  const nonAnchors = assigns.filter(a => a.role !== 'anchor').length;
+  const bukaLen = sim.scoreData.keyframes[1]?.at_s ?? 120;
+  let anchorIdx = 0, entryIdx = 0;
   sim.agents = assigns.map(a => {
     const agent = {
       ...a,
@@ -636,10 +649,14 @@ function makeAgents(n) {
       dance: { phase: 'wander', target: null, timer: 2 + 6 * sim.rng(), tempo: 0.6 + sim.rng() },
       out: { W: 0, B: 0, partialGains: [1, 0, 0, 0], detuneCents: 0, amRate: 0.1, amDepth: 0, focusId: null, E: 0 },
       breathOffset: a.role === 'anchor' ? (2 * Math.PI * (anchorIdx++) / Math.max(anchorCount, 1)) : 0,
+      // buka: anchors enter at 0, everyone else staggers across the section
+      entryAt: a.role === 'anchor' ? 0 : (++entryIdx) * (bukaLen / (nonAnchors + 1)),
+      entryGain: 1, fpCents: 0, fp: null,
       drag: null, audio: null,
     };
     return agent;
   });
+  reseedFingerprints();
   for (const a of sim.agents) {
     for (const b of sim.agents) {
       if (a.id === b.id) continue;
@@ -648,6 +665,14 @@ function makeAgents(n) {
     }
   }
   if (sim.audio) buildAudio();
+}
+
+function reseedFingerprints() {
+  for (const a of sim.agents) {
+    const mult = sim.params.drift.role_multipliers[a.role] ?? 1;
+    a.fp = new FingerprintDrift(fnv1a(`${a.id}|${sim.perfSeed}`), sim.params, mult);
+    a.fpCents = 0;
+  }
 }
 
 // --- movement presets ---------------------------------------------------------
@@ -755,6 +780,25 @@ function idealRssi(d) {
 }
 
 function stepModel(dt) {
+  // Score clock: compression multiplies score time AND the model dt below, so
+  // the arc's proportions hold at e.g. 16x audition speed (physics stays real-time).
+  const comp = sim.scoreOn ? sim.compression : 1;
+  const dtM = dt * comp;
+  let bloomMultiplier = 1, fpAmp = sim.params.drift.fingerprint_amplitude;
+  if (sim.scoreOn) {
+    sim.scoreT = Math.min(sim.scoreT + dtM, sim.scoreData.duration_s);
+    const st = sim.score.tick(sim.scoreT);
+    sim.scoreNow = st;
+    for (const [path, v] of st.patches) {
+      if (path.includes('.')) setPath(sim.params, path, v); // score-only scalars handled below
+    }
+    bloomMultiplier = st.bloomMultiplier;
+    fpAmp = st.fingerprintAmplitude;
+    for (const ev of st.events) sim.gongStart = sim.t;
+    sim.effScale = interpolateScale(sim.scaleDrift, st.stretch);
+  } else {
+    sim.effScale = null;
+  }
   for (const a of sim.agents) {
     const encounters = new Map(), buckets = new Map(), peerPitches = new Map();
     for (const b of sim.agents) {
@@ -767,8 +811,11 @@ function stepModel(dt) {
       peerPitches.set(b.id, b.pitchHz);
     }
     const motion = clamp(a.speedSm / 1.4, 0, 1);
-    a.out = a.reward.update(dt, { encounters, buckets, motion, peerPitches });
+    a.out = a.reward.update(dtM, { encounters, buckets, motion, peerPitches, bloomMultiplier });
     a.motion = motion;
+    a.fpCents = a.fp.update(dtM, fpAmp);
+    const entryTarget = (!sim.scoreOn || sim.scoreT >= a.entryAt) ? 1 : 0;
+    a.entryGain += (entryTarget - a.entryGain) * emaAlpha(dt, 1.5);
   }
 }
 
@@ -804,25 +851,41 @@ function disposeAudio() {
 
 function applyAudio(now) {
   if (!sim.audio) return;
-  const phi = 2 * Math.PI * (sim.t % sim.params.breath.period_s) / sim.params.breath.period_s;
+  const comp = sim.scoreOn ? sim.compression : 1;
+  const phi = 2 * Math.PI * ((sim.t * comp) % sim.params.breath.period_s) / sim.params.breath.period_s;
   const breath = breathGain(phi, sim.params);
+  const masterMult = sim.scoreOn && sim.scoreNow ? sim.scoreNow.masterMultiplier : 1;
+  const gongAge = (sim.t - sim.gongStart) * comp;
+  const gongActive = gongAge >= 0 && gongAge < 20;
+  // drifting scale: frequencies glide as the stretch migrates (spec §13.1)
+  const eff = sim.effScale;
+  const ratios = eff ? eff.spectrum.ratios : sim.scale.spectrum.ratios;
+  const effScaleObj = eff ? {
+    base_freq_hz: sim.scale.base_freq_hz,
+    pseudo_octave_ratio: eff.stretch ?? eff.spectrum.ratios[1],
+    scale_cents: eff.scale_cents,
+  } : sim.scale;
   for (const a of sim.agents) {
     if (!a.audio) continue;
     const roleP = sim.params.roles[a.role];
     const o = a.out;
-    // partial gains + detune
+    const pitch = pitchHzFor(effScaleObj, a.degreeIndex, a.register);
     for (let k = 0; k < 4; k++) {
+      a.audio.oscs[k].frequency.setTargetAtTime(pitch * ratios[k], now, 2.0);
       a.audio.pGains[k].gain.setTargetAtTime(o.partialGains[k], now, 0.08);
-      a.audio.oscs[k].detune.setTargetAtTime(o.detuneCents, now, 0.08);
+      a.audio.oscs[k].detune.setTargetAtTime(o.detuneCents + a.fpCents, now, 0.08);
     }
     // spatialization relative to the listener
     const dx = a.x - sim.listener.x, dy = a.y - sim.listener.y;
     const d = Math.hypot(dx, dy);
     const gDist = Math.min(1, 1 / Math.max(d, 1));
-    // role envelope
-    const roleEnv = a.role === 'anchor' ? anchorSwell(phi, a.breathOffset) : 1;
-    const am = 1 + o.amDepth * Math.sin(2 * Math.PI * o.amRate * sim.t);
-    const g = roleP.base_gain * roleEnv * breath * am * gDist * sim.masterVol * 0.14;
+    // role envelope; a section gong swells all anchors together, in phase
+    const roleEnv = a.role === 'anchor'
+      ? (gongActive ? Math.sin(Math.PI * gongAge / 20) : anchorSwell(phi, a.breathOffset))
+      : 1;
+    const am = 1 + o.amDepth * Math.sin(2 * Math.PI * o.amRate * sim.t * comp);
+    const g = roleP.base_gain * roleEnv * breath * am * gDist *
+      a.entryGain * masterMult * sim.masterVol * 0.14;
     a.audio.agentGain.gain.setTargetAtTime(g, now, 0.05);
     a.audio.panner.pan.setTargetAtTime(clamp(dx / (ROOM_W / 2), -1, 1), now, 0.1);
   }
@@ -965,9 +1028,60 @@ const PARAM_DEFS = [
   ]},
 ];
 
+const mmss = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
 function buildPanel() {
   const panel = document.getElementById('panel');
   panel.innerHTML = '';
+
+  // score transport (spec §12) + performance seed (spec §13)
+  const sc = document.createElement('fieldset');
+  sc.innerHTML = '<legend>Score — 16:00</legend>';
+  const tRow = document.createElement('div'); tRow.className = 'row';
+  const playBtn = mkBtn('▶ play score', () => {
+    sim.scoreOn = !sim.scoreOn;
+    if (sim.scoreOn) sim.score.seek(sim.scoreT);
+    playBtn.textContent = sim.scoreOn ? '❚❚ hold' : '▶ play score';
+  });
+  const rewBtn = mkBtn('⏮', () => { sim.scoreT = 0; sim.score.seek(0); scrub.value = 0; });
+  const posOut = document.createElement('output'); posOut.id = 'scorePos'; posOut.value = '—';
+  posOut.style.flex = '1'; posOut.style.textAlign = 'right';
+  tRow.append(playBtn, rewBtn, posOut);
+  sc.appendChild(tRow);
+  const scrubRow = document.createElement('div'); scrubRow.className = 'row';
+  scrubRow.innerHTML = '<label>scrub</label>';
+  const scrub = document.createElement('input');
+  scrub.type = 'range'; scrub.min = 0; scrub.max = sim.scoreData.duration_s; scrub.step = 5; scrub.value = 0;
+  scrub.id = 'scoreScrub';
+  scrub.oninput = () => { sim.scoreT = parseFloat(scrub.value); sim.score.seek(sim.scoreT); };
+  scrubRow.appendChild(scrub);
+  sc.appendChild(scrubRow);
+  const compRow = document.createElement('div'); compRow.className = 'row';
+  compRow.innerHTML = '<label>time compression</label>';
+  const compSel = document.createElement('select');
+  for (const c of [1, 2, 4, 8, 16]) {
+    const o = document.createElement('option'); o.value = c; o.textContent = `${c}×`;
+    if (c === sim.compression) o.selected = true;
+    compSel.appendChild(o);
+  }
+  compSel.onchange = () => sim.compression = parseInt(compSel.value, 10);
+  compRow.appendChild(compSel);
+  sc.appendChild(compRow);
+  const seedRow = document.createElement('div'); seedRow.className = 'row';
+  seedRow.innerHTML = '<label>performance seed</label>';
+  const seedInp = document.createElement('input');
+  seedInp.type = 'text'; seedInp.value = sim.perfSeed; seedInp.style.flex = '1'; seedInp.style.minWidth = '0';
+  seedInp.style.background = '#1e1e26'; seedInp.style.color = '#d8d8de';
+  seedInp.style.border = '1px solid #33333e'; seedInp.style.borderRadius = '6px'; seedInp.style.padding = '3px 6px';
+  seedInp.onchange = () => { sim.perfSeed = seedInp.value; reseedFingerprints(); };
+  const reroll = mkBtn('⟳', () => {
+    sim.perfSeed = String(Math.floor(Date.now() / 1000));
+    seedInp.value = sim.perfSeed;
+    reseedFingerprints();
+  });
+  seedRow.append(seedInp, reroll);
+  sc.appendChild(seedRow);
+  panel.appendChild(sc);
 
   // ensemble group
   const ens = document.createElement('fieldset');
@@ -1120,8 +1234,15 @@ function updateStats(force) {
     for (const [id, s] of a.sensors) if (id > a.id && s.encounterActive) enc++;
   }
   const n = sim.agents.length || 1;
+  const scorePart = sim.scoreOn && sim.scoreNow
+    ? `${sim.scoreNow.label} ${mmss(sim.scoreT)} · stretch ${sim.scoreNow.stretch.toFixed(3)} · `
+    : '';
   document.getElementById('stats').textContent =
-    `${sim.agents.length} phones · ${enc} encounters · B̄ ${(sumB / n).toFixed(2)} · W̄ ${(sumW / n).toFixed(2)}${sim.idealSensing ? ' · IDEAL' : ' · BLE'}`;
+    `${scorePart}${sim.agents.length} phones · ${enc} encounters · B̄ ${(sumB / n).toFixed(2)} · W̄ ${(sumW / n).toFixed(2)}${sim.idealSensing ? ' · IDEAL' : ' · BLE'}`;
+  const posOut = document.getElementById('scorePos');
+  if (posOut) posOut.value = sim.scoreOn && sim.scoreNow ? `${sim.scoreNow.label} · ${mmss(sim.scoreT)}` : mmss(sim.scoreT);
+  const scrub = document.getElementById('scoreScrub');
+  if (scrub && sim.scoreOn) scrub.value = sim.scoreT;
 }
 
 // --- boot -------------------------------------------------------------------------
