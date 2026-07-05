@@ -11,6 +11,33 @@ settings:
     CODE_SIGN_STYLE: Automatic
 
 targets:
+  NearfieldEnsemble:
+    type: application
+    platform: iOS
+    sources:
+      - path: NearfieldEnsemble
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nearfield.ensemble
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.0"
+        ENABLE_PREVIEWS: true
+        GENERATE_INFOPLIST_FILE: true
+        INFOPLIST_KEY_UILaunchScreen_Generation: true
+    info:
+      path: NearfieldEnsemble/Info.plist
+      properties:
+        UILaunchScreen:
+          UIColorName: ""
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSLocalNetworkUsageDescription: "Connects to the Nearfield hub on the local network to receive this phone's part in the ensemble."
+        # Bluetooth (Dance phase: BLE encounter sensing)
+        NSBluetoothAlwaysUsageDescription: "Bluetooth senses which other participants are near you; closeness shapes the sound."
+        NSBluetoothPeripheralUsageDescription: "Bluetooth senses which other participants are near you; closeness shapes the sound."
+        UIBackgroundModes:
+          - audio
+
   Nearfield:
     type: application
     platform: iOS

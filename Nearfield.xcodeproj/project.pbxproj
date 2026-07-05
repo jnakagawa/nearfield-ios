@@ -3,20 +3,32 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 63;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
+		01EE29B8DC029255D16172AA /* HubClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF1838F63472B1E72809CAFE /* HubClient.swift */; };
 		1A819DD24973581052EA9A0A /* nearfield.html in Resources */ = {isa = PBXBuildFile; fileRef = 37C0646667DDB929D70CAC9E /* nearfield.html */; };
+		20D03E6C27D8CB7E57B60DDE /* EnsembleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F66F23B128DBF0810C896C2B /* EnsembleApp.swift */; };
+		46090974BB312FBDE9F474E9 /* VoiceEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20CE9C5958840CF971464B6B /* VoiceEngine.swift */; };
 		4E306E509FC192897A6A1053 /* NearfieldApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1AFF821975E43488888CD72 /* NearfieldApp.swift */; };
 		95B17610906B225E9BACF3D0 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E78D4EB9B7A0874B969FD79 /* ContentView.swift */; };
+		ECC7A8D07D88D08E0FD5483B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 351EE86A84F75CA01247C0F4 /* ContentView.swift */; };
+		F0D799E1763DC2939F74B059 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = D494DDF1E61BEDDAA50273BB /* Config.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		20CE9C5958840CF971464B6B /* VoiceEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceEngine.swift; sourceTree = "<group>"; };
+		351EE86A84F75CA01247C0F4 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		37C0646667DDB929D70CAC9E /* nearfield.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = nearfield.html; sourceTree = "<group>"; };
 		4E78D4EB9B7A0874B969FD79 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		8BD28AC5102D8EF39C97D770 /* Nearfield.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Nearfield.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4F0710E630A9C4EA0DDFC4B3 /* NearfieldEnsemble.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = NearfieldEnsemble.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4FB92A1C7B6754CAE51D3E41 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		8BD28AC5102D8EF39C97D770 /* Nearfield.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Nearfield.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B1AFF821975E43488888CD72 /* NearfieldApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearfieldApp.swift; sourceTree = "<group>"; };
+		BF1838F63472B1E72809CAFE /* HubClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HubClient.swift; sourceTree = "<group>"; };
+		D494DDF1E61BEDDAA50273BB /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
+		F66F23B128DBF0810C896C2B /* EnsembleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnsembleApp.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -24,6 +36,7 @@
 			isa = PBXGroup;
 			children = (
 				8BD28AC5102D8EF39C97D770 /* Nearfield.app */,
+				4F0710E630A9C4EA0DDFC4B3 /* NearfieldEnsemble.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -32,6 +45,7 @@
 			isa = PBXGroup;
 			children = (
 				E60D28787DE4C8DD230B3950 /* Nearfield */,
+				F4B771C068D6E585657904B8 /* NearfieldEnsemble */,
 				5A3C24E79312995D5953D76D /* Products */,
 			);
 			sourceTree = "<group>";
@@ -45,6 +59,19 @@
 			);
 			name = Nearfield;
 			path = Nearfield/Nearfield;
+			sourceTree = "<group>";
+		};
+		F4B771C068D6E585657904B8 /* NearfieldEnsemble */ = {
+			isa = PBXGroup;
+			children = (
+				D494DDF1E61BEDDAA50273BB /* Config.swift */,
+				351EE86A84F75CA01247C0F4 /* ContentView.swift */,
+				F66F23B128DBF0810C896C2B /* EnsembleApp.swift */,
+				BF1838F63472B1E72809CAFE /* HubClient.swift */,
+				4FB92A1C7B6754CAE51D3E41 /* Info.plist */,
+				20CE9C5958840CF971464B6B /* VoiceEngine.swift */,
+			);
+			path = NearfieldEnsemble;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -68,6 +95,23 @@
 			productReference = 8BD28AC5102D8EF39C97D770 /* Nearfield.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A96A67C12F5B9C5AF3061F2D /* NearfieldEnsemble */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2129FD68F58C54FDAFCC46A0 /* Build configuration list for PBXNativeTarget "NearfieldEnsemble" */;
+			buildPhases = (
+				06BFA6AC38B668CD50DC96DC /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = NearfieldEnsemble;
+			packageProductDependencies = (
+			);
+			productName = NearfieldEnsemble;
+			productReference = 4F0710E630A9C4EA0DDFC4B3 /* NearfieldEnsemble.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -78,6 +122,11 @@
 				LastUpgradeCheck = 1500;
 				TargetAttributes = {
 					92F15ECC2F792E8FBE165DBC = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					A96A67C12F5B9C5AF3061F2D = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -92,10 +141,12 @@
 			);
 			mainGroup = 8424BBE5A0F6EF65B9095412;
 			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				92F15ECC2F792E8FBE165DBC /* Nearfield */,
+				A96A67C12F5B9C5AF3061F2D /* NearfieldEnsemble */,
 			);
 		};
 /* End PBXProject section */
@@ -112,6 +163,18 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		06BFA6AC38B668CD50DC96DC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F0D799E1763DC2939F74B059 /* Config.swift in Sources */,
+				ECC7A8D07D88D08E0FD5483B /* ContentView.swift in Sources */,
+				20D03E6C27D8CB7E57B60DDE /* EnsembleApp.swift in Sources */,
+				01EE29B8DC029255D16172AA /* HubClient.swift in Sources */,
+				46090974BB312FBDE9F474E9 /* VoiceEngine.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		31D2F492413E313506759E20 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -194,7 +257,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = 34TC8WMBSQ;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = Nearfield/Nearfield/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -207,6 +269,26 @@
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
+		};
+		20BEDB3E70F944DF573231E6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = NearfieldEnsemble/Info.plist;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nearfield.ensemble;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
 		};
 		6AA613DC4DC03E3B626881E3 /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -271,7 +353,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = 34TC8WMBSQ;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = Nearfield/Nearfield/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -285,9 +366,38 @@
 			};
 			name = Release;
 		};
+		8139F52BE13663634EFBA159 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = NearfieldEnsemble/Info.plist;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nearfield.ensemble;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		2129FD68F58C54FDAFCC46A0 /* Build configuration list for PBXNativeTarget "NearfieldEnsemble" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8139F52BE13663634EFBA159 /* Debug */,
+				20BEDB3E70F944DF573231E6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		B324CD11E1173B5BD13E97CF /* Build configuration list for PBXNativeTarget "Nearfield" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
