@@ -530,12 +530,21 @@ Scalar field = sum of ring families, one per sounding partial, contoured into
 constant-width hairlines (`fract` iso-lines normalized by `fwidth`; reference GLSL in
 `simulator/visuals.html`):
 
-- **My partials** each radiate from their **own seeded center** — scattered (some beyond
-  the frame) and slowly orbiting — so solo mode is *self-interference*: a woven terrain
-  with **no focal point**. (A single-center bullseye was reviewed and rejected.)
-- **Peer families** (up to 3 concurrent, focus peer strongest) enter from the frame edge
-  and approach as `E` rises; azimuth comes from a hash of the peer ID — BLE gives no
-  bearing, and the spec makes no pretense of one.
+- **My tone radiates from six sources, all outside the visible frame**: the fundamental
+  from three seeded points (itself + two "room reflection" image-sources at the same
+  wavelength — a lone sine is still a woven multi-source field, never concentric rings),
+  plus one source per unlocked partial. Centers orbit slowly; because every center is
+  off-frame, only arcs cross the screen — **no focal point exists** in any state.
+  (Reviewed and rejected twice: a single-center bullseye, and a solo mode that collapsed
+  to one ring family when partials were gated.)
+- **Peer families** (up to 3 concurrent, focus peer strongest) press in from a hashed
+  azimuth as `E` rises but also stay outside the frame — approach reads as increasing
+  curvature and fringe reorganization, not an arriving dot. BLE gives no bearing, and
+  the spec makes no pretense of one.
+- **Fringe drift is the audible beat**, not the raw pitch difference: the smallest
+  frequency gap among near-coinciding partial pairs of the two tones (§2.1 — roughness
+  lives inside the critical band), soft-compressed above ~1 Hz. Consonant-but-distant
+  intervals drift near-imperceptibly; a locking pair visibly freezes.
 - **The one exception to "no focal point":** during the final gong, as fingerprints
   converge to the canonical scale, my centers slowly merge into a single point — the
   bullseye is earned exactly once, as the piece's last image.
@@ -547,7 +556,7 @@ constant-width hairlines (`fract` iso-lines normalized by `fwidth`; reference GL
 | Ring spacing per family | sounding frequency of that partial (pitch × ratio, incl. drift §13.1) |
 | Family weight (line contribution) | partial gain from RewardState (§5.3) |
 | Peer family spacing offset | actual detune between the pair |
-| Fringe drift rate | true beat rate `Δf` between my fundamental and focus peer's — locks ⇒ freezes |
+| Fringe drift rate | audible beat: min Δf over coinciding partial pairs (soft-capped ~1 Hz) — locks ⇒ freezes |
 | Peer family position | encounter envelope `E` (edge → inward) |
 | Solo line density (iso count) | wind `W` — sparse when still, denser as the room moves |
 | Global slow scale pulse (±2%) | breath phase (§5.3) |
