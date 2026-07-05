@@ -836,7 +836,13 @@ function buildAudio() {
       osc.start();
       oscs.push(osc); pGains.push(g);
     }
-    a.audio = { oscs, pGains, agentGain, panner };
+    // shimmer AM lives in the graph (LFO → gain param) so modulation keeps
+    // breathing at audio rate when background JS is throttled to ~1 Hz
+    const lfo = new OscillatorNode(ctx, { type: 'sine', frequency: 0.1 });
+    const lfoGain = new GainNode(ctx, { gain: 0 });
+    lfo.connect(lfoGain).connect(agentGain.gain);
+    lfo.start();
+    a.audio = { oscs, pGains, agentGain, panner, lfo, lfoGain };
   }
 }
 
@@ -844,6 +850,7 @@ function disposeAudio() {
   for (const a of sim.agents) {
     if (!a.audio) continue;
     for (const o of a.audio.oscs) { try { o.stop(); } catch (_) {} }
+    try { a.audio.lfo.stop(); } catch (_) {}
     a.audio.agentGain.disconnect();
     a.audio = null;
   }
@@ -883,10 +890,11 @@ function applyAudio(now) {
     const roleEnv = a.role === 'anchor'
       ? (gongActive ? Math.sin(Math.PI * gongAge / 20) : anchorSwell(phi, a.breathOffset))
       : 1;
-    const am = 1 + o.amDepth * Math.sin(2 * Math.PI * o.amRate * sim.t * comp);
-    const g = roleP.base_gain * roleEnv * breath * am * gDist *
+    const g = roleP.base_gain * roleEnv * breath * gDist *
       a.entryGain * masterMult * sim.masterVol * 0.14;
     a.audio.agentGain.gain.setTargetAtTime(g, now, 0.05);
+    a.audio.lfo.frequency.setTargetAtTime(o.amRate * comp, now, 0.2);
+    a.audio.lfoGain.gain.setTargetAtTime(o.amDepth * g, now, 0.2);
     a.audio.panner.pan.setTargetAtTime(clamp(dx / (ROOM_W / 2), -1, 1), now, 0.1);
   }
 }
@@ -1221,6 +1229,10 @@ setInterval(() => {
     tickWall();
     if (sim.running) { draw(); updateStats(true); }
   }
+  // keep the context alive through iOS interruptions while the piece runs
+  if (sim.running && sim.audio && sim.audio.ctx.state !== 'running') {
+    sim.audio.ctx.resume().catch(() => {});
+  }
 }, 200);
 
 let lastStats = 0;
@@ -1252,11 +1264,51 @@ document.getElementById('startBtn').onclick = async () => {
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
   const comp = new DynamicsCompressorNode(ctx, { threshold: -18, knee: 20, ratio: 6, attack: 0.01, release: 0.3 });
   const master = new GainNode(ctx, { gain: 1 });
-  comp.connect(master).connect(ctx.destination);
-  sim.audio = { ctx, comp, master };
+  comp.connect(master);
+  sim.audio = { ctx, comp, master, bgEl: null };
+
+  // Background survival (iOS Safari): route output through an <audio> element
+  // playing a MediaStream, with Media Session metadata — the page is then a
+  // "media player" and keeps sounding when backgrounded, locked, or behind the
+  // camera (photo mode). Pure WebAudio → ctx.destination dies on background.
+  try {
+    const streamDest = ctx.createMediaStreamDestination();
+    master.connect(streamDest);
+    const bgEl = new Audio();
+    bgEl.srcObject = streamDest.stream;
+    bgEl.setAttribute('playsinline', '');
+    await bgEl.play(); // inside the user gesture
+    sim.audio.bgEl = bgEl;
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: 'Leaves in the Wind', artist: 'Nearfield ensemble',
+      });
+      navigator.mediaSession.playbackState = 'playing';
+      navigator.mediaSession.setActionHandler('pause', () => {
+        sim.scoreOn = false;
+        navigator.mediaSession.playbackState = 'paused';
+      });
+      navigator.mediaSession.setActionHandler('play', () => {
+        sim.audio.bgEl?.play().catch(() => {});
+        if (sim.score) { sim.score.seek(sim.scoreT); sim.scoreOn = true; }
+        navigator.mediaSession.playbackState = 'playing';
+      });
+    }
+  } catch (_) {
+    master.connect(ctx.destination); // fallback: direct output
+  }
+
   buildAudio();
   sim.running = true;
 };
+
+// Re-arm audio after interruptions (lock/unlock, camera, calls).
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && sim.audio) {
+    sim.audio.ctx.resume().catch(() => {});
+    sim.audio.bgEl?.play().catch(() => {});
+  }
+});
 
 (async function init() {
   await loadConfigs();
