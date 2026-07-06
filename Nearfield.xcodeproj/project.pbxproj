@@ -22,6 +22,7 @@
 		95B17610906B225E9BACF3D0 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E78D4EB9B7A0874B969FD79 /* ContentView.swift */; };
 		A95B78E3FABDB00E8FF758A8 /* ScoreCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78942A71B0AAFDC762727928 /* ScoreCore.swift */; };
 		B13395FD9353EF3ECE48A662 /* RewardCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 701A7D8F4D68DE9408ECC25F /* RewardCoreTests.swift */; };
+		B7540DDE0C518C4C5FB924DB /* VisualBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB477A2792FB3D0541A7BBDF /* VisualBridgeTests.swift */; };
 		B7AA0A8E978CCD55EFDBCAB2 /* NeighborSensor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B2295137A4F55070A3487D /* NeighborSensor.swift */; };
 		C35014CEB786F581D3D24364 /* Conductor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5D31B577D1AD1A9223A5178 /* Conductor.swift */; };
 		D3DDB89ABDD27B9EF104A870 /* visual.html in Resources */ = {isa = PBXBuildFile; fileRef = 2A6CB71613B44B9E10091952 /* visual.html */; };
@@ -74,6 +75,7 @@
 		E05D1BE6FB7E96ABBE1D89AB /* NearfieldEnsembleTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = NearfieldEnsembleTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F66F23B128DBF0810C896C2B /* EnsembleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnsembleApp.swift; sourceTree = "<group>"; };
 		F76B869F0F5B02462B8EC468 /* MotionSensor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionSensor.swift; sourceTree = "<group>"; };
+		FB477A2792FB3D0541A7BBDF /* VisualBridgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualBridgeTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -125,6 +127,7 @@
 				4F5969317D5CA11B777B481D /* ConvolutionReverbTests.swift */,
 				701A7D8F4D68DE9408ECC25F /* RewardCoreTests.swift */,
 				90A4551B99354EC26C4C6E5E /* ScoreCoreTests.swift */,
+				FB477A2792FB3D0541A7BBDF /* VisualBridgeTests.swift */,
 			);
 			path = NearfieldEnsembleTests;
 			sourceTree = "<group>";
@@ -332,6 +335,7 @@
 				E9C4BBD4C71D97E761BF23CE /* ConvolutionReverbTests.swift in Sources */,
 				B13395FD9353EF3ECE48A662 /* RewardCoreTests.swift in Sources */,
 				74F2221DD1A33E93B495A92C /* ScoreCoreTests.swift in Sources */,
+				B7540DDE0C518C4C5FB924DB /* VisualBridgeTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

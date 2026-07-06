@@ -5,27 +5,29 @@ import WebKit
 // sound never routes through it. The Conductor pushes state at 5 Hz; the JS
 // side smooths per frame and drifts fringes at the audible beat rate.
 final class VisualBridge: NSObject, ObservableObject, WKNavigationDelegate {
-    weak var webView: WKWebView?
+    // A hub switch unmounts the VisualView, so a NEW webview (loading a fresh
+    // page) can arrive at any time — reset the load state or we'd fire init
+    // at a half-loaded page and never again (blank field after REJOIN).
+    weak var webView: WKWebView? {
+        didSet { if webView !== oldValue { pageLoaded = false; initialized = false } }
+    }
     private var initialized = false
-    private var pendingInit: String?
+    private var initJS: String? // survives webview swaps; re-applied on load
     private var pageLoaded = false
 
     func initialize(seedString: String, ink: Double = 1) {
-        let js = "nf.init({seedString: '\(seedString)', ink: \(ink)});"
-        if pageLoaded {
+        initJS = "nf.init({seedString: '\(seedString)', ink: \(ink)});"
+        if pageLoaded, let js = initJS {
             webView?.evaluateJavaScript(js)
             initialized = true
-        } else {
-            pendingInit = js // page still loading; fire in didFinish
         }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         pageLoaded = true
-        if let js = pendingInit {
+        if let js = initJS {
             webView.evaluateJavaScript(js)
             initialized = true
-            pendingInit = nil
         }
     }
 
