@@ -16,7 +16,11 @@ const path = require('path');
 const { WebSocketServer } = require('ws');
 
 const PORT = parseInt(process.env.PORT || '5000', 10);
-const CONFIG_DIR = process.env.CONFIG_DIR || path.join(__dirname, 'config');
+// deploy bundles put config/ beside this file; the repo keeps it at the root
+const CONFIG_DIR = process.env.CONFIG_DIR
+  || [path.join(__dirname, 'config'), path.join(__dirname, '..', 'config')]
+    .find(d => fs.existsSync(path.join(d, 'scale.json')))
+  || path.join(__dirname, 'config');
 const SCORE_END_HOLD_S = 30; // final-gong image lingers, then free hum
 
 const loadJson = f => JSON.parse(fs.readFileSync(path.join(CONFIG_DIR, f), 'utf8'));
