@@ -44,6 +44,18 @@ final class HubClient: NSObject, ObservableObject {
         state = .idle
     }
 
+    /// Debug-panel hub switch: drop the current assignment and rejoin
+    /// whatever `host` now says. Clearing `assignment` first makes the
+    /// participantId change observable even if the new hub hands back the
+    /// same slot number.
+    func switchHub() {
+        task?.cancel(with: .goingAway, reason: nil)
+        task = nil
+        assignment = nil
+        scorePosition = nil
+        connect()
+    }
+
     private func open() {
         // iOS keyboards love to sneak in spaces; be forgiving
         let cleaned = host.trimmingCharacters(in: .whitespacesAndNewlines)

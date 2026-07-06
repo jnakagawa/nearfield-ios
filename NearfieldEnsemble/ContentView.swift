@@ -20,7 +20,14 @@ struct ContentView: View {
             }
             if chromeVisible { chrome }
         }
-        .onAppear { conductor.visual = visual }
+        .onAppear {
+            conductor.visual = visual
+            hub.connect() // silent auto-(re)join; hub keys assignments by device_id
+        }
+        // root-level so hub switches are seen even while the chrome is hidden
+        .onChange(of: hub.assignment?.participantId) { _ in
+            startVoiceIfAssigned()
+        }
     }
 
     private var chrome: some View {
@@ -81,12 +88,6 @@ struct ContentView: View {
             Spacer().frame(height: 40)
         }
         .padding()
-        .onChange(of: hub.assignment?.participantId) { _ in
-            startVoiceIfAssigned()
-        }
-        .onAppear {
-            hub.connect() // silent auto-(re)join; hub keys assignments by device_id
-        }
     }
 
     private var assignmentView: some View {
@@ -125,6 +126,18 @@ struct ContentView: View {
                         Slider(value: $conductor.debugMotion, in: 0...1)
                         Text(String(format: "%.2f", conductor.debugMotion)).font(.footnote.monospaced())
                     }
+                    // switch hubs without reinstalling (accepts host:port or a
+                    // full http(s)/ws(s) URL, e.g. the Railway hub)
+                    HStack(spacing: 6) {
+                        TextField("hub host / url", text: $hub.host)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.footnote)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                        Button("REJOIN") { hub.switchHub() }
+                            .font(.footnote.weight(.medium))
+                    }
+                    .padding(.top, 4)
                 }
                 .font(.footnote)
                 .frame(maxWidth: 300)
