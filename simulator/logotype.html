@@ -71,7 +71,7 @@
 
 const WORD = 'NEARFIELD';
 const WORD_LC = 'nearfield';
-const TW = 2048, TH = 512;   // text texture size
+const TW = 3072, TH = 768;   // text texture size (>= display width: no upscale fuzz)
 
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -119,7 +119,7 @@ function chamfer(mask, W, H, seedInside) {
   return d;
 }
 
-const SDF_RANGE = 120;
+const SDF_RANGE = 64; // tighter range -> 0.5px quantization steps (was ~1px: jaggies)
 
 function buildTextTexture(tracking, word, font, size) {
   const c = document.createElement('canvas');
@@ -170,6 +170,15 @@ float hair(float q, float w) {
   return 1.0 - smoothstep(w, w + 1.0, d);
 }
 vec2 rot(vec2 p, float a){ float c=cos(a), s=sin(a); return vec2(c*p.x-s*p.y, s*p.x+c*p.y); }
+// hash-based value noise: organic, non-repeating (sin-product wobble reads
+// as a symmetric checkerboard — rejected)
+float vhash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(vhash(i), vhash(i + vec2(1, 0)), f.x),
+             mix(vhash(i + vec2(0, 1)), vhash(i + vec2(1, 1)), f.x), f.y);
+}
 void main(){
   vec2 st = gl_FragCoord.xy / res;                 // 0..1 texture space
   vec2 uv = (gl_FragCoord.xy - 0.5*res) / res.y;   // centered, y-normalized
@@ -216,11 +225,11 @@ void main(){
     // 0 NESTED: fat rounded lowercase glyphs drawn as a handful of wobbling
     // contour strokes nesting inward — liquid topographic lettering. No
     // radiating field: nothing exists beyond the outermost contour.
-    vec2 p = st * vec2(9.0, 2.25);
-    float wob = sin(p.x * 1.9 + 1.3) * sin(p.y * 2.1 + 0.7)
-              + 0.45 * sin(p.x * 4.1 + 4.0 + t * 0.05) * sin(p.y * 3.7 + 2.9);
-    float spacing = 18.0 / density;
-    float sd = sdf - 16.0 + wob * spacing * 0.34;   // fatten boundary outward 16px
+    vec2 p = st * vec2(14.0, 3.5);
+    float wob = (vnoise(p + t * 0.03) * 2.0 - 1.0)
+              + 0.5 * (vnoise(rot(p * 2.3, 1.9) + vec2(37.2, 91.7) - t * 0.02) * 2.0 - 1.0);
+    float spacing = 27.0 / density;
+    float sd = sdf - 24.0 + wob * spacing * 0.4;    // fatten boundary outward 24px
     float q = sd / spacing - 0.5;                   // lines at sd = k*spacing exactly
     c = hair(q, weight * 2.2);
     c *= step(sd, spacing * 0.25);                  // outermost ring is the boundary
@@ -261,9 +270,9 @@ function uploadOne(tex, px) {
 function uploadText() {
   const tr = parseFloat(tracking.value);
   uploadOne(texture, buildTextTexture(tr, WORD,
-    '500 SIZEpx Futura, "Avenir Next", Avenir, "Helvetica Neue", sans-serif', 210));
+    '500 SIZEpx Futura, "Avenir Next", Avenir, "Helvetica Neue", sans-serif', 315));
   uploadOne(textureLC, buildTextTexture(tr * 0.3, WORD_LC,
-    '800 SIZEpx "Arial Rounded MT Bold", "SF Pro Rounded", "Nunito", sans-serif', 270));
+    '800 SIZEpx "Arial Rounded MT Bold", "SF Pro Rounded", "Nunito", sans-serif', 405));
 }
 
 // --- state / controls -----------------------------------------------------------
