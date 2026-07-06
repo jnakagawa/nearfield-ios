@@ -45,6 +45,20 @@ def test_assigner_is_stable_per_device():
     assert first["pitch_hz"] == again["pitch_hz"]
 
 
+def test_status_json_shape():
+    hub = Hub(CONFIG_DIR, performance_id=123)
+    hub.assigner.assign("dev-a", "A")
+    hub.assigner.assign("dev-b", "B")
+    s = hub.status_json()
+    assert s["performance_id"] == 123
+    assert s["score_t"] is None
+    assert [p["id"] for p in s["participants"]] == [0, 1]
+    assert s["participants"][0]["role"] == "anchor"
+    assert not s["participants"][0]["online"]
+    hub.start_score()
+    assert hub.status_json()["score_t"] is not None
+
+
 def test_join_round_trip():
     async def scenario():
         hub = Hub(CONFIG_DIR)

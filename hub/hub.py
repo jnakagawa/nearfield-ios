@@ -149,11 +149,78 @@ class Hub:
             await asyncio.sleep(1)
             if self.score_started_at is not None:
                 t = min(time.time() - self.score_started_at, self.score["duration_s"])
-                await self.broadcast({"type": "score_position", "t_s": t})
+                await self.broadcast({"type": "score_position", "t_s": t,
+                                      "n": len(self.clients)})
 
     def start_score(self):
         self.score_started_at = time.time()
         log.info("score started (performance %s)", self.performance_id)
+
+    # --- dashboard (HTTP on the same port) -------------------------------------
+
+    def status_json(self):
+        joined = sorted(self.assigner.by_device.values(), key=lambda a: a["participant_id"])
+        online = set(self.clients.values())
+        return {
+            "performance_id": self.performance_id,
+            "score_t": (min(time.time() - self.score_started_at, self.score["duration_s"])
+                        if self.score_started_at is not None else None),
+            "participants": [{
+                "id": a["participant_id"], "name": a["name"], "role": a["role"],
+                "pitch_hz": round(a["pitch_hz"], 1),
+                "online": a["participant_id"] in online,
+                "telemetry": self.telemetry.get(a["participant_id"]),
+            } for a in joined],
+        }
+
+    def process_request(self, connection, request):
+        """Plain-HTTP endpoints on the WS port: / dashboard, /status, /start-score."""
+        if "Upgrade" in request.headers:
+            return None  # WebSocket handshake proceeds
+        if request.path == "/status":
+            resp = connection.respond(200, json.dumps(self.status_json()))
+            resp.headers["Content-Type"] = "application/json"
+            return resp
+        if request.path == "/start-score":
+            self.start_score()
+            return connection.respond(200, "score started\n")
+        resp = connection.respond(200, DASHBOARD_HTML)
+        resp.headers["Content-Type"] = "text/html"
+        return resp
+
+
+DASHBOARD_HTML = """<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Nearfield hub</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body { background:#101014; color:#d8d8de; font:14px/1.5 -apple-system,sans-serif;
+       max-width:640px; margin:2rem auto; padding:0 1rem; }
+h1 { font-size:16px; letter-spacing:.2em; } .dim { color:#8a8a96; }
+table { width:100%; border-collapse:collapse; margin-top:1rem; }
+td,th { padding:6px 8px; text-align:left; border-bottom:1px solid #26262e; font-size:13px; }
+.off { opacity:.35; } button { background:#1c1c2a; color:#fff; border:1px solid #5a5aff;
+border-radius:999px; padding:8px 22px; letter-spacing:.1em; cursor:pointer; }
+#score { font-variant-numeric:tabular-nums; }
+</style></head><body>
+<h1>NEARFIELD <span class="dim">hub</span></h1>
+<p><span id="score" class="dim">score not started</span>
+<button onclick="fetch('/start-score').then(()=>{})">START SCORE</button></p>
+<table id="t"><tr><th>#</th><th>name</th><th>role</th><th>pitch</th><th>W</th><th>B</th></tr></table>
+<script>
+setInterval(async () => {
+  const s = await (await fetch('/status')).json();
+  document.getElementById('score').textContent = s.score_t === null ? 'score not started'
+    : `score ${String(Math.floor(s.score_t/60)).padStart(2,'0')}:${String(Math.floor(s.score_t%60)).padStart(2,'0')} / 16:00`;
+  const rows = s.participants.map(p => {
+    const tm = p.telemetry || {};
+    return `<tr class="${p.online?'':'off'}"><td>${p.id}</td><td>${p.name}</td><td>${p.role}</td>
+      <td>${p.pitch_hz} Hz</td><td>${tm.W?.toFixed?.(2) ?? '—'}</td><td>${tm.B?.toFixed?.(2) ?? '—'}</td></tr>`;
+  }).join('');
+  document.getElementById('t').innerHTML =
+    '<tr><th>#</th><th>name</th><th>role</th><th>pitch</th><th>W</th><th>B</th></tr>' + rows;
+}, 1000);
+</script></body></html>
+"""
 
 
 async def main():
@@ -168,8 +235,10 @@ async def main():
     hub = Hub(args.config_dir, args.performance_id)
     if args.start_score:
         hub.start_score()
-    async with websockets.serve(hub.handler, "0.0.0.0", args.port):
-        log.info("nearfield hub on :%s — performance_id %s", args.port, hub.performance_id)
+    async with websockets.serve(hub.handler, "0.0.0.0", args.port,
+                                process_request=hub.process_request):
+        log.info("nearfield hub on :%s — performance_id %s (dashboard: http://localhost:%s/)",
+                 args.port, hub.performance_id, args.port)
         await hub.score_clock()
 
 
