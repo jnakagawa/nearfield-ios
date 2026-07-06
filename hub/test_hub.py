@@ -96,3 +96,11 @@ def test_score_tick_lifecycle():
     assert hub.score_tick()["type"] == "score_stop"
     assert hub.score_started_at is None
     assert hub.score_tick() is None
+
+
+def test_projection_endpoint_inlines_score():
+    hub = Hub(CONFIG_DIR, performance_id=9)
+    html = hub.projection_html()
+    assert 'projection-core' in html
+    assert '/*NF_SCORE*/ null' not in html      # token replaced
+    assert '"duration_s": 960' in html          # the actual score payload

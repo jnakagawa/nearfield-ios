@@ -126,6 +126,12 @@ const server = http.createServer((req, res) => {
     startScore();
     res.writeHead(200);
     res.end('score started\n');
+  } else if (p.endsWith('/projection')) {
+    // §16 wall view with the score inlined (read per request: dev-friendly)
+    const html = fs.readFileSync(path.join(__dirname, 'projection.html'), 'utf8')
+      .replace('/*NF_SCORE*/ null', JSON.stringify(score));
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(html);
   } else {
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end(DASHBOARD_HTML);

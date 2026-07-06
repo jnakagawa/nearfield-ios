@@ -191,11 +191,18 @@ class Hub:
             } for a in joined],
         }
 
+    def projection_html(self):
+        """The §16 wall view, with the score inlined so gongs/convergence run
+        client-side without another fetch."""
+        html = (Path(__file__).resolve().parent / "projection.html").read_text()
+        return html.replace("/*NF_SCORE*/ null", json.dumps(self.score))
+
     def process_request(self, connection, request):
-        """Plain-HTTP endpoints on the WS port: / dashboard, /status, /start-score.
-        Path matching is suffix-based and ignores the query string so the hub
-        works unchanged behind reverse proxies that prefix the path and/or
-        token-gate with ?t=… (e.g. a cloud deploy)."""
+        """Plain-HTTP endpoints on the WS port: / dashboard, /status,
+        /start-score, /projection. Path matching is suffix-based and ignores
+        the query string so the hub works unchanged behind reverse proxies
+        that prefix the path and/or token-gate with ?t=… (e.g. a cloud
+        deploy)."""
         if "Upgrade" in request.headers:
             return None  # WebSocket handshake proceeds
         path = request.path.split("?", 1)[0]
@@ -206,6 +213,10 @@ class Hub:
         if path.endswith("/start-score"):
             self.start_score()
             return connection.respond(200, "score started\n")
+        if path.endswith("/projection"):
+            resp = connection.respond(200, self.projection_html())
+            resp.headers["Content-Type"] = "text/html"
+            return resp
         resp = connection.respond(200, DASHBOARD_HTML)
         resp.headers["Content-Type"] = "text/html"
         return resp
