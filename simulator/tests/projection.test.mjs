@@ -62,3 +62,27 @@ test('seedHome is deterministic and off-center', () => {
   assert.deepEqual(a, b);
   assert.ok(Math.hypot(a.x, a.y) > 0.1);
 });
+
+test('alignAngles converges encountering pairs, including across the wrap', () => {
+  const mk = (id, az) => ({ id, az, gr: az });
+  const A = mk(0, 0.1), B = mk(1, 2 * Math.PI - 0.1); // 0.2 rad apart via wrap
+  const edges = [{ a: 0, b: 1, e: 1 }];
+  const before = Math.abs(ctx.wrapPi(B.az - A.az));
+  for (let i = 0; i < 100; i++) ctx.alignAngles([A, B], edges, 0.05, 1);
+  const after = Math.abs(ctx.wrapPi(B.az - A.az));
+  assert.ok(after < before * 0.2, `converged: ${before} -> ${after}`);
+  // wrap path taken: A moved toward negative, not the long way around
+  assert.ok(Math.abs(A.az) < 0.15 || A.az > 6.1, `short way: ${A.az}`);
+});
+
+test('beatVel: zero when solo, audible-beat sum when encountering, capped', () => {
+  const by = new Map([
+    [0, { id: 0, pitch: 220, det: 0 }],
+    [1, { id: 1, pitch: 221, det: 0 }], // fundamentals beat at 1 Hz
+  ]);
+  assert.equal(ctx.beatVel(0, [], by, ctx.RATIOS), 0);
+  const v = ctx.beatVel(0, [{ a: 0, b: 1, e: 1 }], by, ctx.RATIOS);
+  assert.ok(Math.abs(v - 1.2 * Math.tanh(1 / 1.2)) < 1e-9, `v=${v}`);
+  const many = Array.from({ length: 10 }, () => ({ a: 0, b: 1, e: 1 }));
+  assert.equal(ctx.beatVel(0, many, by, ctx.RATIOS), 1.2); // capped
+});
