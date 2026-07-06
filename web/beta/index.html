@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nearfield — beta</title>
+<meta property="og:title" content="Nearfield — a sound piece for many phones">
+<meta property="og:description" content="Your phone becomes one voice in a room-scale ensemble. Join the beta.">
+<style>
+  html, body { margin:0; height:100%; background:#000; color:#d8d8de;
+               font:16px/1.65 -apple-system, "Helvetica Neue", sans-serif; }
+  canvas { position:fixed; inset:0; width:100%; height:100%; }
+  main { position:relative; max-width:560px; margin:0 auto; padding:14vh 24px 12vh; }
+  h1 { font-size:20px; letter-spacing:.45em; font-weight:600; margin:0 0 4px; }
+  .sub { color:#8a8a96; font-size:13px; letter-spacing:.12em; margin-bottom:7vh; }
+  p { margin:1.1em 0; text-shadow:0 0 14px #000, 0 0 4px #000; }
+  .dim { color:#9a9aa6; }
+  .actions { margin-top:6vh; display:flex; gap:14px; flex-wrap:wrap; }
+  a.btn { display:inline-block; padding:13px 30px; border:1px solid #d8d8de;
+          border-radius:999px; color:#fff; text-decoration:none;
+          letter-spacing:.18em; font-size:13px; background:#000c; }
+  a.btn.ghost { border-color:#3a3a44; color:#9a9aa6; }
+  .fine { margin-top:8vh; font-size:12px; color:#5a5a66; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<main>
+  <h1>NEARFIELD</h1>
+  <div class="sub">a sound piece for many phones — beta</div>
+  <p>Your phone becomes one voice in a room-scale ensemble. When the app joins,
+  it is given a pitch and a part in a tuning derived from the ensemble's own
+  tone.</p>
+  <p>Move, and your voice opens. Come close to someone, and both your sounds
+  bloom — beating slowly into tune with each other. Stand still long enough
+  and you fade back into the field. <span class="dim">The artwork happens in
+  the air between speakers.</span></p>
+  <p class="dim">Every screen shows its own view of one shared interference
+  field; a projection shows the whole.</p>
+  <div class="actions">
+    <a class="btn" href="https://testflight.apple.com/join/DhUK6Xbw">JOIN THE BETA</a>
+    <a class="btn ghost" href="https://nearfield-hub-production.up.railway.app/projection">WATCH THE FIELD</a>
+  </div>
+  <div class="fine">iPhone · TestFlight · headphones off — this piece plays out loud</div>
+</main>
+<script>
+// §14 background: a quiet FIELD-mode interference render, breathing slowly
+'use strict';
+const canvas=document.getElementById('c');
+const gl=canvas.getContext('webgl',{antialias:true});
+gl.getExtension('OES_standard_derivatives');
+const FS=`
+#extension GL_OES_standard_derivatives : enable
+precision highp float;
+uniform vec2 res;uniform float t;
+float hair(float v,float n,float w){
+  float q=v*n;float d=abs(fract(q)-0.5)/(fwidth(q)+1e-5);
+  return 1.0-smoothstep(w,w+1.0,d);}
+void main(){
+  vec2 uv=(gl_FragCoord.xy-0.5*res)/min(res.x,res.y);
+  uv*=1.0+0.015*sin(t*0.52);
+  float v=0.0;
+  v+=1.0*cos(6.2831853*length(uv-vec2(-1.15,-0.7))/0.30);
+  v+=0.9*cos(6.2831853*length(uv-vec2(1.2,-0.8))/0.27+t*0.11);
+  v+=1.0*cos(6.2831853*length(uv-vec2(1.05,0.95))/0.34);
+  v+=0.7*cos(6.2831853*length(uv-vec2(-1.1,0.9))/0.24+t*0.07);
+  float c=hair(v/3.6,2.6,0.7);
+  gl_FragColor=vec4(vec3(c*0.34),1.0);
+}`;
+function sh(ty,src){const s=gl.createShader(ty);gl.shaderSource(s,src);gl.compileShader(s);return s;}
+const prog=gl.createProgram();
+gl.attachShader(prog,sh(gl.VERTEX_SHADER,'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}'));
+gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(prog);
+const quad=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+function resize(){const d=Math.min(devicePixelRatio||1,2);
+  canvas.width=innerWidth*d;canvas.height=innerHeight*d;}
+addEventListener('resize',resize);resize();
+function frame(ms){
+  requestAnimationFrame(frame);
+  gl.viewport(0,0,canvas.width,canvas.height);
+  gl.useProgram(prog);
+  gl.uniform2f(gl.getUniformLocation(prog,'res'),canvas.width,canvas.height);
+  gl.uniform1f(gl.getUniformLocation(prog,'t'),ms/1000);
+  const a=gl.getAttribLocation(prog,'p');
+  gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+  gl.enableVertexAttribArray(a);
+  gl.vertexAttribPointer(a,2,gl.FLOAT,false,0,0);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
