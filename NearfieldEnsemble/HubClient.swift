@@ -48,7 +48,20 @@ final class HubClient: NSObject, ObservableObject {
         // iOS keyboards love to sneak in spaces; be forgiving
         let cleaned = host.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: " ", with: "")
-        guard shouldRun, !cleaned.isEmpty, let url = URL(string: "ws://\(cleaned)") else {
+        // bare host:port -> ws:// (laptop hub on the LAN); full URLs pass
+        // through, with http(s) mapped to ws(s) so a copy-pasted cloud-hub
+        // dashboard URL (including any ?token query) just works
+        let urlString: String
+        if cleaned.hasPrefix("ws://") || cleaned.hasPrefix("wss://") {
+            urlString = cleaned
+        } else if cleaned.hasPrefix("https://") {
+            urlString = "wss://" + cleaned.dropFirst("https://".count)
+        } else if cleaned.hasPrefix("http://") {
+            urlString = "ws://" + cleaned.dropFirst("http://".count)
+        } else {
+            urlString = "ws://\(cleaned)"
+        }
+        guard shouldRun, !cleaned.isEmpty, let url = URL(string: urlString) else {
             state = .failed("bad host")
             return
         }

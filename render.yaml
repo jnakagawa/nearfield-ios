@@ -1,0 +1,13 @@
+# Cloud hub: Render Blueprint — dashboard > New + > Blueprint > this repo.
+# Render web services pass WebSocket upgrades natively (verified requirement:
+# the Zerohost/Cloudflare-container route 500s on WS upgrade — see spec §11).
+# The free plan spins down after ~15 min idle with a ~1 min cold start; open
+# the dashboard to wake it before a performance, or bump the plan.
+services:
+  - type: web
+    name: nearfield-hub
+    runtime: python
+    buildCommand: pip install websockets
+    startCommand: python hub/hub.py --port $PORT
+    plan: free
+    autoDeploy: false

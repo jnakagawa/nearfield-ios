@@ -192,14 +192,18 @@ class Hub:
         }
 
     def process_request(self, connection, request):
-        """Plain-HTTP endpoints on the WS port: / dashboard, /status, /start-score."""
+        """Plain-HTTP endpoints on the WS port: / dashboard, /status, /start-score.
+        Path matching is suffix-based and ignores the query string so the hub
+        works unchanged behind reverse proxies that prefix the path and/or
+        token-gate with ?t=… (e.g. a cloud deploy)."""
         if "Upgrade" in request.headers:
             return None  # WebSocket handshake proceeds
-        if request.path == "/status":
+        path = request.path.split("?", 1)[0]
+        if path.endswith("/status"):
             resp = connection.respond(200, json.dumps(self.status_json()))
             resp.headers["Content-Type"] = "application/json"
             return resp
-        if request.path == "/start-score":
+        if path.endswith("/start-score"):
             self.start_score()
             return connection.respond(200, "score started\n")
         resp = connection.respond(200, DASHBOARD_HTML)
@@ -222,11 +226,16 @@ border-radius:999px; padding:8px 22px; letter-spacing:.1em; cursor:pointer; }
 </style></head><body>
 <h1>NEARFIELD <span class="dim">hub</span></h1>
 <p><span id="score" class="dim">score not started</span>
-<button onclick="fetch('/start-score').then(()=>{})">START SCORE</button></p>
+<button id="startBtn">START SCORE</button></p>
 <table id="t"><tr><th>#</th><th>name</th><th>role</th><th>pitch</th><th>W</th><th>B</th></tr></table>
 <script>
+// endpoints resolved relative to wherever the dashboard is served, keeping
+// any proxy path prefix and ?t= access token intact
+const base = location.pathname.endsWith('/') ? location.pathname : location.pathname + '/';
+const ep = name => base + name + location.search;
+document.getElementById('startBtn').onclick = () => fetch(ep('start-score'));
 setInterval(async () => {
-  const s = await (await fetch('/status')).json();
+  const s = await (await fetch(ep('status'))).json();
   document.getElementById('score').textContent = s.score_t === null ? 'score not started'
     : `score ${String(Math.floor(s.score_t/60)).padStart(2,'0')}:${String(Math.floor(s.score_t%60)).padStart(2,'0')} / 16:00`;
   const rows = s.participants.map(p => {
