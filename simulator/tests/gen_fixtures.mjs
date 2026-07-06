@@ -78,6 +78,25 @@ for (let i = 0; i < 750; i++) {
   });
 }
 
+// --- score: keyframe interpolation, labels, stretch, drift-scale rows ---------
+const scoreState = new ctx.ScoreState(ctx.DEFAULT_SCORE, params);
+const scoreSamples = [0, 30, 60, 90, 120, 200, 300, 420, 510, 600, 700, 840, 900, 930, 960].map(t => ({
+  t,
+  label: scoreState.labelAt(t),
+  bloom: scoreState.valueAt('bloom_multiplier', t),
+  master: scoreState.valueAt('master_multiplier', t),
+  fpAmp: scoreState.valueAt('drift.fingerprint_amplitude', t),
+  breath: scoreState.valueAt('breath.period_s', t),
+  tauAttack: scoreState.valueAt('encounter.tau_attack_s', t) ?? -1,
+  novelty: scoreState.valueAt('wind.alpha_novelty_per_s', t) ?? -1,
+  stretch: scoreState.stretchAt(t),
+}));
+const drift = ctx.DEFAULT_SCALE_DRIFT;
+const scaleSamples = [2.04, 2.055, 2.07, 2.0851, 2.1].map(s => {
+  const r = ctx.interpolateScale(drift, s);
+  return { stretch: s, scaleCents: r.scale_cents, dips: r.dip_intervals_cents, ratio2: r.spectrum.ratios[1] };
+});
+
 const fixtures = {
   version: 1,
   dt: DT,
@@ -90,6 +109,8 @@ const fixtures = {
     peer2PitchHz: peer2Pitch,
     trace: rewardTrace,
   },
+  score: { samples: scoreSamples },
+  scaleDrift: { samples: scaleSamples },
 };
 
 const outDir = join(here, '..', '..', 'config', 'fixtures');

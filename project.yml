@@ -63,6 +63,10 @@ targets:
       - path: NearfieldEnsembleTests
       - path: config/scale.json
         buildPhase: resources
+      - path: config/score.json
+        buildPhase: resources
+      - path: config/scale_drift.json
+        buildPhase: resources
       - path: config/params.json
         buildPhase: resources
       - path: config/fixtures/reward_golden.json

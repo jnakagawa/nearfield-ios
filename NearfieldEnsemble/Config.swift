@@ -152,6 +152,9 @@ struct Params: Codable {
         let roleMultipliers: [String: Double]
         let ombakEnabled: Bool
         let ombakRefHz: Double
+        let globalStretchFrom: Double?
+        let globalStretchTo: Double?
+        let globalStretchEndS: Double?
         enum CodingKeys: String, CodingKey {
             case fingerprintMaxCents = "fingerprint_max_cents"
             case fingerprintTauS = "fingerprint_tau_s"
@@ -159,6 +162,9 @@ struct Params: Codable {
             case roleMultipliers = "role_multipliers"
             case ombakEnabled = "ombak_enabled"
             case ombakRefHz = "ombak_ref_hz"
+            case globalStretchFrom = "global_stretch_from"
+            case globalStretchTo = "global_stretch_to"
+            case globalStretchEndS = "global_stretch_end_s"
         }
     }
 
@@ -197,6 +203,52 @@ struct Params: Codable {
     }
 }
 
+struct Score: Codable {
+    let durationS: Double
+    let keyframes: [Keyframe]
+    let events: [Event]
+
+    struct Keyframe: Codable {
+        let atS: Double
+        let label: String
+        let patch: [String: Double]
+        enum CodingKeys: String, CodingKey {
+            case atS = "at_s"
+            case label, patch
+        }
+    }
+
+    struct Event: Codable {
+        let atS: Double
+        let type: String
+        enum CodingKeys: String, CodingKey {
+            case atS = "at_s"
+            case type
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case durationS = "duration_s"
+        case keyframes, events
+    }
+}
+
+struct ScaleDrift: Codable {
+    let rows: [Row]
+
+    struct Row: Codable {
+        let stretch: Double
+        let spectrum: Scale.Spectrum
+        let scaleCents: [Double]
+        let dipIntervalsCents: [Double]
+        enum CodingKeys: String, CodingKey {
+            case stretch, spectrum
+            case scaleCents = "scale_cents"
+            case dipIntervalsCents = "dip_intervals_cents"
+        }
+    }
+}
+
 struct AssignMessage: Codable {
     let type: String
     let participantId: Int
@@ -205,6 +257,8 @@ struct AssignMessage: Codable {
     let register: Int
     let pitchHz: Double
     let scale: Scale
+    let scaleDrift: ScaleDrift?
+    let score: Score?
     let params: Params
     let performanceId: Int
 
@@ -216,6 +270,8 @@ struct AssignMessage: Codable {
         case register
         case pitchHz = "pitch_hz"
         case scale
+        case scaleDrift = "scale_drift"
+        case score
         case params
         case performanceId = "performance_id"
     }
