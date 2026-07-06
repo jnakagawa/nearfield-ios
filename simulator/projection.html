@@ -37,6 +37,10 @@
   <label>beat rate <input type="range" id="uBeat" min="0" max="0.03" step="0.001" value="0.008"><span class="val"></span></label>
   <label>encounters <input type="range" id="uEnc" min="0" max="3" step="0.05" value="1"><span class="val"></span></label>
   <label>phones <input type="range" id="uN" min="6" max="50" step="1" value="30"><span class="val"></span></label>
+  <label>fold <input type="range" id="uFold" min="1" max="12" step="1" value="1"><span class="val"></span></label>
+  <div>
+    <button id="mField">FIELD</button><button id="mOp">OP-ART</button><button id="mCells">CELLS</button>
+  </div>
   <div>
     <button id="bGong">SECTION GONG</button><button id="bFinal">FINAL GONG</button>
     <button id="bNums">NUMBERS</button><button id="bReset">RESET</button>
@@ -151,8 +155,11 @@ function ingest(frame){
     let s=P.byId.get(p.id);
     if(!s){
       const home=seedHome(p.id);
+      const r=mulberry32(fnv1a(p.id+'|'+P.perf+'|dir'));
       s={id:p.id,role:p.role,pitch:p.pitch_hz,home,x:home.x,y:home.y,vx:0,vy:0,
-         W:0,B:0,det:0,arrive:0,phase:mulberry32(fnv1a(p.id+'|ph'))()*6.28};
+         W:0,B:0,det:0,arrive:0,phase:mulberry32(fnv1a(p.id+'|ph'))()*6.28,
+         az:r()*Math.PI*2,   // FIELD: off-frame source azimuth
+         gr:r()*Math.PI};    // OP-ART: grating orientation
       P.byId.set(p.id,s);
     }
     s.tW=clamp(p.telemetry.W,0,1);s.tB=clamp(p.telemetry.B,0,1);s.tDet=p.telemetry.detune_cents;
@@ -180,6 +187,7 @@ function physics(dt,ui){
     s.vx+=(s.home.x-s.x)*0.25*dt;s.vy+=(s.home.y-s.y)*0.25*dt;
   }
   // encounter springs (inferred e from focus edges)
+  const wrapPi=a=>((a+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI;
   for(const[k,ed]of P.edges){
     ed.e+=((ed.active?1:0)-ed.e)*alphaFor(dt,ed.active?3:6);
     const[ia,ib]=k.split('|').map(Number);
@@ -190,6 +198,11 @@ function physics(dt,ui){
     const stop=d>0.22?1:0; // springs never fuse two cells
     A.vx+=dx/d*pull*stop;A.vy+=dy/d*pull*stop;
     Bp.vx-=dx/d*pull*stop;Bp.vy-=dy/d*pull*stop;
+    // FIELD/OP-ART: encounters align wave directions — interacting families
+    // weave into each other instead of moving points around
+    const dAz=wrapPi(Bp.az-A.az),dGr=wrapPi(Bp.gr-A.gr);
+    A.az+=dAz*0.25*ed.e*ui.spring*dt;Bp.az-=dAz*0.25*ed.e*ui.spring*dt;
+    A.gr+=dGr*0.25*ed.e*ui.spring*dt;Bp.gr-=dGr*0.25*ed.e*ui.spring*dt;
   }
   // soft pairwise repulsion — the anti-blob lesson from the Dance sim
   for(let i=0;i<parts.length;i++)for(let j=i+1;j<parts.length;j++){
@@ -222,8 +235,8 @@ gl.getExtension('OES_standard_derivatives');
 const FS=`
 #extension GL_OES_standard_derivatives : enable
 precision highp float;
-uniform vec2 res;uniform float breathScale,rad;uniform int nSrc;
-uniform vec4 srcA[${MAX}]; // x, y, lambda, weight
+uniform vec2 res;uniform float breathScale,rad,densG;uniform int nSrc,mode,fold;
+uniform vec4 srcA[${MAX}]; // radial: x, y, lambda, weight | grating: dirx, diry, lambda, weight
 uniform vec2 srcB[${MAX}]; // phase, densVal
 float hair(float v,float n,float w){
   float q=v*n;float d=abs(fract(q)-0.5)/(fwidth(q)+1e-5);
@@ -231,15 +244,29 @@ float hair(float v,float n,float w){
 void main(){
   vec2 uv=(gl_FragCoord.xy-0.5*res)/min(res.x,res.y);
   uv*=breathScale;
+  // kaleidoscope: fold the plane into a mirrored wedge — every contribution
+  // becomes petals of one collective mandala
+  if(fold>1){
+    float rr=length(uv);float th=atan(uv.y,uv.x);
+    float wseg=6.2831853/float(fold);
+    th=abs(mod(th,wseg)-0.5*wseg);
+    uv=rr*vec2(cos(th),sin(th));
+  }
   float v=0.0;float g=1e-4;float dn=0.0;
   for(int k=0;k<${MAX};k++){
     if(k>=nSrc)break;
-    float r=length(uv-srcA[k].xy);
-    float att=srcA[k].w*smoothstep(rad,rad*0.3,r);
-    v+=att*cos(6.2831853*r/srcA[k].z+srcB[k].x);
-    g+=att;dn+=att*srcB[k].y;
+    if(mode==2){ // op-art: straight gratings, moire from near wavelengths
+      v+=srcA[k].w*cos(6.2831853*dot(uv,srcA[k].xy)/srcA[k].z+srcB[k].x);
+      g+=srcA[k].w;
+    }else{
+      float r=length(uv-srcA[k].xy);
+      float att=srcA[k].w*(mode==0?smoothstep(rad,rad*0.3,r):1.0);
+      v+=att*cos(6.2831853*r/srcA[k].z+srcB[k].x);
+      g+=att;dn+=att*srcB[k].y;
+    }
   }
-  float c=hair(v/g,max(dn/g,0.5),0.7);
+  float dens=mode==0?max(dn/g,0.5):densG;
+  float c=hair(v/g,dens,0.7);
   gl_FragColor=vec4(vec3(c*smoothstep(0.0,0.02,g)),1.0);
 }`;
 function compile(t,src){const s=gl.createShader(t);gl.shaderSource(s,src);gl.compileShader(s);
@@ -258,13 +285,18 @@ addEventListener('resize',resize);resize();
 
 // ---------- frame loop ----------------------------------------------------------
 const ui={};
-for(const id of['uDrift','uSpring','uRad','uDens','uBeat','uEnc','uN']){
+for(const id of['uDrift','uSpring','uRad','uDens','uBeat','uEnc','uN','uFold']){
   const el=document.getElementById(id);
   const show=()=>el.parentElement.querySelector('.val').textContent=(+el.value).toFixed(el.step<0.01?3:2);
   el.oninput=show;show();
 }
 const uiVal=id=>+document.getElementById(id).value;
 let showNums=false,chromeOn=true;
+let mode=1; // FIELD is the working hypothesis; CELLS kept for comparison
+const MODES=['CELLS','FIELD','OP-ART'];
+document.getElementById('mCells').onclick=()=>mode=0;
+document.getElementById('mField').onclick=()=>mode=1;
+document.getElementById('mOp').onclick=()=>mode=2;
 document.getElementById('bNums').onclick=()=>showNums=!showNums;
 document.getElementById('bGong').onclick=()=>{P.gongT=performance.now()/1000;};
 document.getElementById('bFinal').onclick=()=>{P.convergeT=performance.now()/1000;};
@@ -302,9 +334,10 @@ function frame(){
   const rich=new Set(byB.slice(0,8).map(s=>s.id));
   const A=new Float32Array(MAX*4),Bu=new Float32Array(MAX*2);let n=0;
   const cv=P.converge;
+  let sumW=0;
   for(const s of parts){
     if(n>=MAX)break;
-    const px=s.x*(1-cv),py=s.y*(1-cv);
+    sumW+=s.W;
     const dens=(2+2*s.W)*uiVal('uDens');
     const f0=s.pitch*Math.pow(2,(s.det||0)/1200);
     const nP=rich.has(s.id)?4:1;
@@ -312,13 +345,23 @@ function frame(){
       const th=[0,0.15,0.4,0.65][k];
       const w=AMPS[k]*(k===0?1:clamp((s.B-th)/0.2,0,1));
       if(w<0.02)continue;
-      A[n*4]=px;A[n*4+1]=py;
-      A[n*4+2]=lamFor(f0*[1,2.07,3.2,4.4][k]);
+      if(mode===2){ // op-art: grating direction (partials fan out slightly)
+        const a=s.gr+k*0.22+cv*(0-s.gr); // final gong: all gratings align
+        A[n*4]=Math.cos(a);A[n*4+1]=Math.sin(a);
+      }else if(mode===1){ // field: off-frame radial, converging at the gong
+        const a=s.az+k*0.15;
+        const rad0=1.25*(1-0.98*cv);
+        A[n*4]=Math.cos(a)*rad0;A[n*4+1]=Math.sin(a)*rad0;
+      }else{ // cells: on-frame positions (the rejected baseline, for compare)
+        A[n*4]=s.x*(1-cv);A[n*4+1]=s.y*(1-cv);
+      }
+      A[n*4+2]=lamFor(f0*[1,2.07,3.2,4.4][k])*(mode===2?0.6:1);
       A[n*4+3]=w*s.arrive;
       Bu[n*2]=s.phase*[1,2.07,3.2,4.4][k];Bu[n*2+1]=dens;
       n++;
     }
   }
+  const densG=(2+2*(parts.length?sumW/parts.length:0))*uiVal('uDens');
   let bs=1+0.012*Math.sin(breath);
   if(P.gongT!==null){const g=t-P.gongT;if(g<20)bs*=1+0.05*Math.sin(Math.PI*g/20);else P.gongT=null;}
   gl.viewport(0,0,canvas.width,canvas.height);
@@ -327,7 +370,10 @@ function frame(){
   gl.uniform2f(loc('res'),canvas.width,canvas.height);
   gl.uniform1f(loc('breathScale'),bs);
   gl.uniform1f(loc('rad'),uiVal('uRad')*(1+1.5*cv));
+  gl.uniform1f(loc('densG'),densG);
   gl.uniform1i(loc('nSrc'),n);
+  gl.uniform1i(loc('mode'),mode);
+  gl.uniform1i(loc('fold'),uiVal('uFold'));
   gl.uniform4fv(loc('srcA'),A);
   gl.uniform2fv(loc('srcB'),Bu);
   const pA=gl.getAttribLocation(prog,'p');
@@ -348,7 +394,7 @@ function frame(){
   }
   const enc=[...P.edges.values()].filter(e=>e.e>0.2).length;
   document.getElementById('stats').textContent=
-    `${parts.length} phones · ${enc} bridges · ${n} sources`;
+    `${MODES[mode]}${uiVal('uFold')>1?' ×'+uiVal('uFold'):''} · ${parts.length} phones · ${enc} bridges · ${n} sources`;
 }
 requestAnimationFrame(frame);
 </script>
