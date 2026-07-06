@@ -1,17 +1,22 @@
 import AVFoundation
 
 // The phone's voice (spec §6.2): an AVAudioSourceNode rendering the ≤4-partial
-// sine stack, into tone shaping + reverb approximating the §5.5 voicing
-// (AVAudioUnitReverb stands in for the generated-IR convolution until the
-// Piece phase). Frequencies/gains are set from the assignment; per-render-
-// block gain smoothing avoids zipper noise.
+// sine stack through the §5.5 voicing — tone shaping (EQ) + generated-IR
+// convolution reverb (ConvolutionReverb, the simulator's room). The dry/wet
+// split lives inside the render callback; the EQ sits after and applies to
+// both paths, which commutes with the simulator's EQ-before-split order
+// (all LTI). Frequencies/gains are set from the assignment; per-render-block
+// gain smoothing avoids zipper noise.
 final class VoiceEngine: ObservableObject {
     @Published private(set) var isPlaying = false
 
     private let engine = AVAudioEngine()
     private var srcNode: AVAudioSourceNode?
     private let eq = AVAudioUnitEQ(numberOfBands: 2)
-    private let reverb = AVAudioUnitReverb()
+    private var convolver: ConvolutionReverb?
+    private var dryMix: Float = 1
+    private var wetMix: Float = 0
+    private var timbre: Params.Timbre?
 
     // render-thread state (written from main via setVoice/applyReward/setMuted;
     // aligned 64-bit stores are atomic on arm64 — acceptable for slow control data)
@@ -46,8 +51,12 @@ final class VoiceEngine: ObservableObject {
             eq.bands[0].frequency = Float(t.shelfFreqHz)
             eq.bands[0].gain = Float(t.shelfGainDb)
             eq.bands[1].frequency = Float(t.lowpassHz)
-            reverb.wetDryMix = Float(t.reverbWet * 100)
         }
+        timbre = t
+        // equal-power crossfade, matching the simulator's dry/wet gains
+        let wet = (t?.reverbWet ?? 0.3) * .pi / 2
+        dryMix = Float(cos(wet))
+        wetMix = Float(sin(wet))
     }
 
     /// 5 Hz from the Conductor: bloom gains, detune (slew + fingerprint), AM.
@@ -93,6 +102,14 @@ final class VoiceEngine: ObservableObject {
         let format = engine.outputNode.outputFormat(forBus: 0)
         sampleRate = format.sampleRate
 
+        // §5.5 generated IR: built once before the engine starts (the render
+        // thread reads it immutably; no live rebuild — reverb params are not
+        // score-patched)
+        convolver = ConvolutionReverb(ir: ConvolutionReverb.generateIR(
+            decayS: timbre?.reverbDecayS ?? 5.5,
+            dampHz: timbre?.reverbDampHz ?? 3000,
+            sampleRate: sampleRate))
+
         let node = AVAudioSourceNode { [weak self] _, _, frameCount, audioBufferList -> OSStatus in
             guard let self else { return noErr }
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
@@ -103,6 +120,8 @@ final class VoiceEngine: ObservableObject {
             }
             self.voiceLevel += (self.voiceLevelTarget - self.voiceLevel) * 0.08
             let amInc = twoPi * self.amRate / self.sampleRate
+            let conv = self.convolver
+            let dryMix = self.dryMix, wetMix = self.wetMix
             for frame in 0..<Int(frameCount) {
                 var sample = 0.0
                 for k in 0..<4 where self.currentGains[k] > 1e-5 {
@@ -115,9 +134,11 @@ final class VoiceEngine: ObservableObject {
                 if self.amPhase > twoPi { self.amPhase -= twoPi }
                 let am = 1.0 + self.amDepth * sin(self.amPhase)
                 let value = Float(sample * am * 0.2 * self.voiceLevel)
+                let wet = conv?.processSample(value) ?? 0
+                let mixed = dryMix * value + wetMix * wet
                 for buffer in ablPointer {
                     let buf = UnsafeMutableBufferPointer<Float>(buffer)
-                    buf[frame] = value
+                    buf[frame] = mixed
                 }
             }
             return noErr
@@ -131,16 +152,12 @@ final class VoiceEngine: ObservableObject {
         eq.bands[1].filterType = .lowPass
         eq.bands[1].frequency = 4200
         eq.bands[1].bypass = false
-        reverb.loadFactoryPreset(.largeHall2)
-        reverb.wetDryMix = 30
 
         engine.attach(node)
         engine.attach(eq)
-        engine.attach(reverb)
         let mono = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)
         engine.connect(node, to: eq, format: mono)
-        engine.connect(eq, to: reverb, format: mono)
-        engine.connect(reverb, to: engine.mainMixerNode, format: mono)
+        engine.connect(eq, to: engine.mainMixerNode, format: mono)
         try engine.start()
         isPlaying = true
     }

@@ -192,6 +192,8 @@ struct Params: Codable {
         let shelfGainDb: Double
         let lowpassHz: Double
         let reverbWet: Double
+        let reverbDecayS: Double?
+        let reverbDampHz: Double?
         enum CodingKeys: String, CodingKey {
             case loudnessRefHz = "loudness_ref_hz"
             case loudnessExponent = "loudness_exponent"
@@ -199,6 +201,8 @@ struct Params: Codable {
             case shelfGainDb = "shelf_gain_db"
             case lowpassHz = "lowpass_hz"
             case reverbWet = "reverb_wet"
+            case reverbDecayS = "reverb_decay_s"
+            case reverbDampHz = "reverb_damp_hz"
         }
     }
 }

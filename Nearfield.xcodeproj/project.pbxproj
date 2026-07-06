@@ -26,6 +26,8 @@
 		C35014CEB786F581D3D24364 /* Conductor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5D31B577D1AD1A9223A5178 /* Conductor.swift */; };
 		D3DDB89ABDD27B9EF104A870 /* visual.html in Resources */ = {isa = PBXBuildFile; fileRef = 2A6CB71613B44B9E10091952 /* visual.html */; };
 		D73294D4989EF604E856C78A /* RewardCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D939F398C6F4A8090D9AD625 /* RewardCore.swift */; };
+		E4D528FB3E18507260BB7320 /* ConvolutionReverb.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37B2F9FE9B9C3F48A28651C3 /* ConvolutionReverb.swift */; };
+		E9C4BBD4C71D97E761BF23CE /* ConvolutionReverbTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F5969317D5CA11B777B481D /* ConvolutionReverbTests.swift */; };
 		ECC7A8D07D88D08E0FD5483B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 351EE86A84F75CA01247C0F4 /* ContentView.swift */; };
 		F0D799E1763DC2939F74B059 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = D494DDF1E61BEDDAA50273BB /* Config.swift */; };
 		F860539F82DA8E6EC13D50CD /* score.json in Resources */ = {isa = PBXBuildFile; fileRef = DF0B8B7E35DD64B9C3343190 /* score.json */; };
@@ -45,9 +47,11 @@
 		20CE9C5958840CF971464B6B /* VoiceEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceEngine.swift; sourceTree = "<group>"; };
 		2A6CB71613B44B9E10091952 /* visual.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = visual.html; sourceTree = "<group>"; };
 		351EE86A84F75CA01247C0F4 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		37B2F9FE9B9C3F48A28651C3 /* ConvolutionReverb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConvolutionReverb.swift; sourceTree = "<group>"; };
 		37C0646667DDB929D70CAC9E /* nearfield.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = nearfield.html; sourceTree = "<group>"; };
 		4E78D4EB9B7A0874B969FD79 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		4F0710E630A9C4EA0DDFC4B3 /* NearfieldEnsemble.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = NearfieldEnsemble.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4F5969317D5CA11B777B481D /* ConvolutionReverbTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConvolutionReverbTests.swift; sourceTree = "<group>"; };
 		4FB92A1C7B6754CAE51D3E41 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		5689ACAB7AF9712707F89A4E /* reward_golden.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = reward_golden.json; sourceTree = "<group>"; };
 		701A7D8F4D68DE9408ECC25F /* RewardCoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RewardCoreTests.swift; sourceTree = "<group>"; };
@@ -116,6 +120,7 @@
 		D59CE9F35E54B1B1C489B4E7 /* NearfieldEnsembleTests */ = {
 			isa = PBXGroup;
 			children = (
+				4F5969317D5CA11B777B481D /* ConvolutionReverbTests.swift */,
 				701A7D8F4D68DE9408ECC25F /* RewardCoreTests.swift */,
 				90A4551B99354EC26C4C6E5E /* ScoreCoreTests.swift */,
 			);
@@ -139,6 +144,7 @@
 				B5D31B577D1AD1A9223A5178 /* Conductor.swift */,
 				D494DDF1E61BEDDAA50273BB /* Config.swift */,
 				351EE86A84F75CA01247C0F4 /* ContentView.swift */,
+				37B2F9FE9B9C3F48A28651C3 /* ConvolutionReverb.swift */,
 				F66F23B128DBF0810C896C2B /* EnsembleApp.swift */,
 				BF1838F63472B1E72809CAFE /* HubClient.swift */,
 				4FB92A1C7B6754CAE51D3E41 /* Info.plist */,
@@ -294,6 +300,7 @@
 				C35014CEB786F581D3D24364 /* Conductor.swift in Sources */,
 				F0D799E1763DC2939F74B059 /* Config.swift in Sources */,
 				ECC7A8D07D88D08E0FD5483B /* ContentView.swift in Sources */,
+				E4D528FB3E18507260BB7320 /* ConvolutionReverb.swift in Sources */,
 				20D03E6C27D8CB7E57B60DDE /* EnsembleApp.swift in Sources */,
 				01EE29B8DC029255D16172AA /* HubClient.swift in Sources */,
 				50C5202F0785BD7E822C71BE /* MotionSensor.swift in Sources */,
@@ -318,6 +325,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E9C4BBD4C71D97E761BF23CE /* ConvolutionReverbTests.swift in Sources */,
 				B13395FD9353EF3ECE48A662 /* RewardCoreTests.swift in Sources */,
 				74F2221DD1A33E93B495A92C /* ScoreCoreTests.swift in Sources */,
 			);
