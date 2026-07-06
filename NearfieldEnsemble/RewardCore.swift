@@ -190,8 +190,11 @@ final class RewardState {
     private let meId: Int
     private let role: String
     private let pitchHz: Double
-    private let params: Params
+    private var params: Params
     private let scale: Scale
+
+    /// Score keyframes patch live constants (spec §12.3).
+    func updateParams(_ p: Params) { params = p }
 
     private var t = 0.0
     private var W = 0.0

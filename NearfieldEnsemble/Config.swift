@@ -26,14 +26,14 @@ struct Scale: Codable {
 }
 
 struct Params: Codable {
-    let breath: Breath
+    var breath: Breath
     let timbre: Timbre?
     let sensing: Sensing
-    let wind: Wind
-    let encounter: Encounter
+    var wind: Wind
+    var encounter: Encounter
     let bloom: Bloom
     let slew: Slew
-    let shimmerAm: ShimmerAm
+    var shimmerAm: ShimmerAm
     let drift: Drift
     let roles: [String: Role]
 
@@ -43,7 +43,7 @@ struct Params: Codable {
     }
 
     struct Breath: Codable {
-        let periodS: Double
+        var periodS: Double
         let ensembleDepth: Double
         enum CodingKeys: String, CodingKey {
             case periodS = "period_s"
@@ -76,7 +76,7 @@ struct Params: Codable {
 
     struct Wind: Codable {
         let alphaMotionPerS: Double
-        let alphaNoveltyPerS: Double
+        var alphaNoveltyPerS: Double
         let tauWindS: Double
         let motionAccelMaxG: Double
         let motionEmaTauS: Double
@@ -92,7 +92,7 @@ struct Params: Codable {
     }
 
     struct Encounter: Codable {
-        let tauAttackS: Double
+        var tauAttackS: Double
         let tauReleaseS: Double
         let tauFamiliarityS: Double
         let tauFamiliarityReleaseS: Double
@@ -137,7 +137,7 @@ struct Params: Codable {
     struct ShimmerAm: Codable {
         let rateBaseHz: Double
         let rateMotionHz: Double
-        let depthWind: Double
+        var depthWind: Double
         enum CodingKeys: String, CodingKey {
             case rateBaseHz = "rate_base_hz"
             case rateMotionHz = "rate_motion_hz"

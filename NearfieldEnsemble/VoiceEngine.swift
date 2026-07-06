@@ -52,8 +52,8 @@ final class VoiceEngine: ObservableObject {
 
     /// 5 Hz from the Conductor: bloom gains, detune (slew + fingerprint), AM.
     func applyReward(_ out: RewardOutputs, extraCents: Double) {
-        let cents = out.detuneCents + extraCents
-        let bend = pow(2.0, cents / 1200.0)
+        lastCents = out.detuneCents + extraCents
+        let bend = pow(2.0, lastCents / 1200.0)
         for k in 0..<4 {
             freqs[k] = basePitch * (k < ratios.count ? ratios[k] : 1) * bend
             targetGains[k] = out.partialGains[k] * tilt[k]
@@ -61,6 +61,24 @@ final class VoiceEngine: ObservableObject {
         amRate = out.amRate
         amDepth = out.amDepth
     }
+    private var lastCents = 0.0
+
+    /// Tuning drift (§13.1): the scale ages during the piece; pitch glides.
+    func setTuning(pitchHz: Double, ratios newRatios: [Double]) {
+        basePitch = pitchHz
+        ratios = newRatios
+        let bend = pow(2.0, lastCents / 1200.0)
+        for k in 0..<4 {
+            freqs[k] = basePitch * (k < ratios.count ? ratios[k] : 1) * bend
+        }
+    }
+
+    /// Whole-voice envelope: breath × anchor swell × master fade × entry gate.
+    func setEnvelope(level: Double) {
+        voiceLevelTarget = max(level, 0)
+    }
+    private var voiceLevelTarget = 1.0
+    private var voiceLevel = 1.0
 
     func start() throws {
         guard srcNode == nil else {
@@ -83,6 +101,7 @@ final class VoiceEngine: ObservableObject {
             for k in 0..<4 {
                 self.currentGains[k] += (self.targetGains[k] - self.currentGains[k]) * 0.15
             }
+            self.voiceLevel += (self.voiceLevelTarget - self.voiceLevel) * 0.08
             let amInc = twoPi * self.amRate / self.sampleRate
             for frame in 0..<Int(frameCount) {
                 var sample = 0.0
@@ -95,7 +114,7 @@ final class VoiceEngine: ObservableObject {
                 self.amPhase += amInc
                 if self.amPhase > twoPi { self.amPhase -= twoPi }
                 let am = 1.0 + self.amDepth * sin(self.amPhase)
-                let value = Float(sample * am * 0.2)
+                let value = Float(sample * am * 0.2 * self.voiceLevel)
                 for buffer in ablPointer {
                     let buf = UnsafeMutableBufferPointer<Float>(buffer)
                     buf[frame] = value

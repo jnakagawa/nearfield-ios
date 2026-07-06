@@ -26,14 +26,27 @@ final class Conductor: ObservableObject {
     private weak var voice: VoiceEngine?
     private weak var hub: HubClient?
 
+    // score playback (spec §12): free-runs from the last hub heartbeat
+    @Published private(set) var scoreLabel: String?
+    @Published private(set) var scoreT: Double = 0
+    private var scoreEngine: ScoreEngine?
+    private var driftTable: ScaleDrift?
+    private var assignment: AssignMessage?
+    private var breathPhase = 0.0
+    private var gongStartedAt: Double? // in score seconds
+    private var lastFingerprintAmp = 1.0
+
     static let tickS = 0.2
     private let debugPeerId = 5 // a voice-role id: consonant with most degrees
 
     func start(assignment a: AssignMessage, voice: VoiceEngine, hub: HubClient) {
         self.voice = voice
         self.hub = hub
+        assignment = a
         params = a.params
         scale = a.scale
+        if let sc = a.score { scoreEngine = ScoreEngine(score: sc, params: a.params) }
+        driftTable = a.scaleDrift
         reward = RewardState(id: a.participantId, role: a.role, pitchHz: a.pitchHz,
                              params: a.params, scale: a.scale)
         let mult = a.params.drift.roleMultipliers[a.role] ?? 1
@@ -54,8 +67,70 @@ final class Conductor: ObservableObject {
     }
 
     private func tick() {
-        guard let reward, let fingerprint, let params, let scale else { return }
+        guard let reward, let fingerprint, var params, let scale, let a = assignment else { return }
         let dt = Self.tickS
+
+        // --- score position: free-run from the last heartbeat (§12.3) --------
+        var bloomMultiplier = 1.0
+        var masterMultiplier = 1.0
+        var fingerprintAmp = params.drift.fingerprintAmplitude
+        var entryGate = 1.0
+        var anchorSwellOverride: Double? = nil
+        let scoreRunning = hub?.scorePosition != nil
+        if scoreRunning, let engine = scoreEngine, let pos = hub?.scorePosition {
+            let t = min(pos.t + Date().timeIntervalSince(pos.at), 960)
+            scoreT = t
+            let st = engine.tick(t)
+            scoreLabel = st.label
+            bloomMultiplier = st.bloomMultiplier
+            masterMultiplier = st.masterMultiplier
+            fingerprintAmp = st.fingerprintAmplitude
+            // live param patches (§12.3) feed the reward model
+            if let v = engine.valueAt("encounter.tau_attack_s", t) { params.encounter.tauAttackS = v }
+            if let v = engine.valueAt("wind.alpha_novelty_per_s", t) { params.wind.alphaNoveltyPerS = v }
+            if let v = engine.valueAt("shimmer_am.depth_wind", t) { params.shimmerAm.depthWind = v }
+            if let v = engine.valueAt("breath.period_s", t) { params.breath.periodS = v }
+            reward.updateParams(params)
+            // tuning drift (§13.1): pitch glides as the scale ages
+            if let table = driftTable {
+                let row = interpolateScale(table, stretch: st.stretch)
+                let register = Double(a.register)
+                let pitch = scale.baseFreqHz * pow(row.stretch, register)
+                    * pow(2, row.scaleCents[a.degreeIndex] / 1200)
+                voice?.setTuning(pitchHz: pitch, ratios: row.spectrum.ratios)
+                // (slew dips shift a few cents under drift; RewardState keeps the
+                // base scale — inside the 60¢ window, acceptable approximation)
+            }
+            // buka entry stagger (§12.2): anchors at 0, others across the section
+            if a.role != "anchor" {
+                let bukaLen = 120.0
+                let n = max(pos.n - 1, 1)
+                let entryAt = Double(a.participantId % max(n, 1) + 1) * (bukaLen / Double(n + 1))
+                entryGate = t >= entryAt ? 1.0 : 0.0
+            }
+            // section/final gongs: anchors swell together for 20 s
+            if st.events.contains(where: { $0.type == "section_gong" || $0.type == "final_gong" }) {
+                gongStartedAt = t
+            }
+            if a.role == "anchor", let g = gongStartedAt, t - g < 20 {
+                anchorSwellOverride = sin(.pi * (t - g) / 20)
+            }
+        }
+        lastFingerprintAmp = fingerprintAmp
+
+        // breath (§5.3): local phase, period follows live params
+        breathPhase += 2 * .pi * dt / params.breath.periodS
+        let breathGain = 1 + params.breath.ensembleDepth * sin(breathPhase)
+        var anchorEnv = 1.0
+        if a.role == "anchor" {
+            if let o = anchorSwellOverride {
+                anchorEnv = o
+            } else {
+                let offset = 2 * .pi * Double(a.participantId % 8) / 8
+                anchorEnv = 0.5 + 0.5 * sin(breathPhase + offset)
+            }
+        }
+        voice?.setEnvelope(level: breathGain * anchorEnv * masterMultiplier * entryGate)
 
         var buckets: [Int: Bucket]
         var encounters: [Int: Bool]
@@ -80,8 +155,9 @@ final class Conductor: ObservableObject {
 
         let out = reward.update(dt: dt, RewardInputs(
             encounters: encounters, buckets: buckets,
-            motion: motion, peerPitches: peerPitches))
-        let fp = fingerprint.update(dt: dt, amplitude: params.drift.fingerprintAmplitude)
+            motion: motion, peerPitches: peerPitches,
+            bloomMultiplier: bloomMultiplier))
+        let fp = fingerprint.update(dt: dt, amplitude: fingerprintAmp)
         lastOut = out
         fpCents = fp
         voice?.applyReward(out, extraCents: fp)

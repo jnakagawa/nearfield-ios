@@ -16,6 +16,8 @@ final class HubClient: NSObject, ObservableObject {
 
     @Published var state: State = .idle
     @Published var assignment: AssignMessage?
+    /// last score_position heartbeat: (score seconds, wall time received, ensemble size)
+    @Published var scorePosition: (t: Double, at: Date, n: Int)?
     @Published var host: String = UserDefaults.standard.string(forKey: "hubHost") ?? "127.0.0.1:8770"
 
     private lazy var session: URLSession = URLSession(
@@ -118,8 +120,12 @@ final class HubClient: NSObject, ObservableObject {
                 state = .assigned
                 reconnectDelay = 1
             }
+        case "score_position":
+            if let t = obj["t_s"] as? Double {
+                scorePosition = (t, Date(), obj["n"] as? Int ?? 1)
+            }
         default:
-            break // score_position / params_update arrive in later phases
+            break // params_update arrives with the dashboard phase
         }
     }
 

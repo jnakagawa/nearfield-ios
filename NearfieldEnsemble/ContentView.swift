@@ -77,6 +77,11 @@ struct ContentView: View {
     private var assignmentView: some View {
         VStack(spacing: 8) {
             if let a = hub.assignment {
+                if let label = conductor.scoreLabel {
+                    Text("\(label) · \(Int(conductor.scoreT) / 60):\(String(format: "%02d", Int(conductor.scoreT) % 60))")
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
                 Text(a.role.uppercased())
                     .font(.system(size: 13, weight: .medium)).tracking(4)
                     .foregroundStyle(.secondary)
