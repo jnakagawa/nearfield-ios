@@ -13,35 +13,53 @@ final class VoiceEngine: ObservableObject {
     private let eq = AVAudioUnitEQ(numberOfBands: 2)
     private let reverb = AVAudioUnitReverb()
 
-    // render-thread state (written from main via setVoice/setMuted; aligned
-    // 64-bit stores are atomic on arm64 — acceptable for slow control data)
+    // render-thread state (written from main via setVoice/applyReward/setMuted;
+    // aligned 64-bit stores are atomic on arm64 — acceptable for slow control data)
     private var phases = [Double](repeating: 0, count: 4)
     private var freqs = [Double](repeating: 0, count: 4)
     private var targetGains = [Double](repeating: 0, count: 4)
     private var currentGains = [Double](repeating: 0, count: 4)
     private var sampleRate: Double = 48_000
+    private var amPhase = 0.0
+    private var amRate = 0.1
+    private var amDepth = 0.0
+
+    private var basePitch: Double = 220
+    private var ratios: [Double] = [1, 2.07, 3.2, 4.4]
+    private var tilt = [Double](repeating: 1, count: 4)
 
     func setVoice(pitchHz: Double, scale: Scale, params: Params, role: String) {
-        let ratios = scale.spectrum.ratios
-        let amps = scale.spectrum.amps
+        basePitch = pitchHz
+        ratios = scale.spectrum.ratios
         let t = params.timbre
         let refHz = t?.loudnessRefHz ?? 300
         let exp = t?.loudnessExponent ?? 0.5
         for k in 0..<4 {
             let f = pitchHz * (k < ratios.count ? ratios[k] : 1)
             freqs[k] = f
-            // Hum phase: static partial stack (bloom dynamics arrive with the
-            // RewardModel in the Dance phase); equal-loudness tilt per §5.5
-            let tilt = min(1.0, pow(refHz / f, exp))
-            let humLevel = k == 0 ? 1.0 : 0.35 // partials present but modest
-            targetGains[k] = (k < amps.count ? amps[k] : 0) * tilt * humLevel
+            tilt[k] = min(1.0, pow(refHz / f, exp)) // equal-loudness (§5.5)
         }
+        // fundamental sounds immediately; upper partials wait for bloom (§5.3)
+        targetGains[0] = tilt[0]
+        for k in 1..<4 { targetGains[k] = 0 }
         if let t {
             eq.bands[0].frequency = Float(t.shelfFreqHz)
             eq.bands[0].gain = Float(t.shelfGainDb)
             eq.bands[1].frequency = Float(t.lowpassHz)
             reverb.wetDryMix = Float(t.reverbWet * 100)
         }
+    }
+
+    /// 5 Hz from the Conductor: bloom gains, detune (slew + fingerprint), AM.
+    func applyReward(_ out: RewardOutputs, extraCents: Double) {
+        let cents = out.detuneCents + extraCents
+        let bend = pow(2.0, cents / 1200.0)
+        for k in 0..<4 {
+            freqs[k] = basePitch * (k < ratios.count ? ratios[k] : 1) * bend
+            targetGains[k] = out.partialGains[k] * tilt[k]
+        }
+        amRate = out.amRate
+        amDepth = out.amDepth
     }
 
     func start() throws {
@@ -65,6 +83,7 @@ final class VoiceEngine: ObservableObject {
             for k in 0..<4 {
                 self.currentGains[k] += (self.targetGains[k] - self.currentGains[k]) * 0.15
             }
+            let amInc = twoPi * self.amRate / self.sampleRate
             for frame in 0..<Int(frameCount) {
                 var sample = 0.0
                 for k in 0..<4 where self.currentGains[k] > 1e-5 {
@@ -72,7 +91,11 @@ final class VoiceEngine: ObservableObject {
                     self.phases[k] += twoPi * self.freqs[k] / self.sampleRate
                     if self.phases[k] > twoPi { self.phases[k] -= twoPi }
                 }
-                let value = Float(sample * 0.2)
+                // shimmer AM at audio rate (§5.3), like the simulator's LFO nodes
+                self.amPhase += amInc
+                if self.amPhase > twoPi { self.amPhase -= twoPi }
+                let am = 1.0 + self.amDepth * sin(self.amPhase)
+                let value = Float(sample * am * 0.2)
                 for buffer in ablPointer {
                     let buf = UnsafeMutableBufferPointer<Float>(buffer)
                     buf[frame] = value

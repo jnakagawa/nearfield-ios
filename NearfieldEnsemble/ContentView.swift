@@ -5,6 +5,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var hub: HubClient
     @EnvironmentObject var voice: VoiceEngine
+    @EnvironmentObject var conductor: Conductor
     @State private var muted = false
 
     var body: some View {
@@ -83,6 +84,31 @@ struct ContentView: View {
                     .font(.system(size: 34, weight: .light, design: .rounded))
                 Text("participant #\(a.participantId) · degree \(a.degreeIndex) · performance \(a.performanceId)")
                     .font(.footnote).foregroundStyle(.secondary)
+                let o = conductor.lastOut
+                Text(String(format: "W %.2f · B %.2f · %@ · %+.1f¢",
+                            o.W, o.B,
+                            o.focusId.map { "focus #\($0)" } ?? "solo",
+                            o.detuneCents + conductor.fpCents))
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 6)
+
+                DisclosureGroup("debug injection") {
+                    Toggle("fake sensors", isOn: $conductor.debugEnabled)
+                    HStack {
+                        Text("peer RSSI").font(.footnote)
+                        Slider(value: $conductor.debugPeerRssi, in: -95 ... -35)
+                        Text("\(Int(conductor.debugPeerRssi))").font(.footnote.monospaced())
+                    }
+                    HStack {
+                        Text("motion").font(.footnote)
+                        Slider(value: $conductor.debugMotion, in: 0...1)
+                        Text(String(format: "%.2f", conductor.debugMotion)).font(.footnote.monospaced())
+                    }
+                }
+                .font(.footnote)
+                .frame(maxWidth: 300)
+                .padding(.top, 10)
             }
         }
     }
@@ -93,5 +119,6 @@ struct ContentView: View {
         do { try voice.start() } catch {
             print("voice start failed: \(error)")
         }
+        conductor.start(assignment: a, voice: voice, hub: hub)
     }
 }

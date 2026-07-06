@@ -66,6 +66,31 @@ func ombakScale(freqHz: Double, params: Params) -> Double {
     return clamp(params.drift.ombakRefHz / freqHz, 0.25, 3)
 }
 
+// MARK: - deterministic assignment (§6.1)
+
+// Assignment is a pure function of join order (the hub's Assigner and the
+// simulator's assignRoles implement the same round-robin), so a phone can
+// derive any peer's role/pitch from its participant id alone — no roster
+// broadcast needed.
+func assignmentFor(index: Int, scale: Scale, params: Params) -> (role: String, pitchHz: Double) {
+    var anchors = 0, shimmers = 0
+    var role = "voice"
+    for i in 0...index {
+        role = "voice"
+        let anchorEvery = 8, shimmerEvery = 6 // spec §4.3 shares
+        if anchors < Int((Double(i + 1) / Double(anchorEvery)).rounded(.up)) {
+            role = "anchor"; anchors += 1
+        } else if shimmers < Int((Double(i + 1) / Double(shimmerEvery)).rounded(.up)) {
+            role = "shimmer"; shimmers += 1
+        }
+    }
+    let degree = index % scale.scaleCents.count
+    let register: Double = role == "anchor" ? -1 : role == "shimmer" ? 1 : 0
+    let pitch = scale.baseFreqHz * pow(scale.pseudoOctaveRatio, register)
+        * pow(2, scale.scaleCents[degree] / 1200)
+    return (role, pitch)
+}
+
 // MARK: - sensing pipeline (§5.1)
 
 enum Bucket: String { case near, mid, far }

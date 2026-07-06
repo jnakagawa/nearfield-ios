@@ -67,6 +67,13 @@ final class HubClient: NSObject, ObservableObject {
         handleDrop(reason)
     }
 
+    func sendTelemetry(_ payload: [String: Any]) {
+        guard case .assigned = state,
+              let data = try? JSONSerialization.data(withJSONObject: payload),
+              let text = String(data: data, encoding: .utf8) else { return }
+        task?.send(.string(text)) { _ in } // best-effort; drops handled by receive loop
+    }
+
     private func sendJoin() {
         let join: [String: Any] = [
             "type": "join",

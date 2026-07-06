@@ -425,7 +425,7 @@ visible. Update when a phase lands or an approximation is resolved.)
 | 1 Derive | ✅ `tuning/derive_scale.py` + sweep; 6 tests |
 | 2 Simulate | ✅ score, drift, voicing, ombak, §14 phone view; 18 tests |
 | 3 Hum | ✅ hub (4 tests) + `NearfieldEnsemble`; hardware-verified 2026-07-05 (iPhone 13 mini joined over tailnet as shimmer 626.1 Hz) |
-| 4 Dance | not started |
+| 4 Dance | ✅ code-complete: Swift RewardCore fixture-validated vs the JS core (4 XCTests, §9 contract); NeighborSensor (BLE) + MotionSensor + 5 Hz Conductor driving VoiceEngine; debug injection panel; loop verified live in simulator. **Two-phone BLE field test pending.** Peers' pitches derived locally from participant id (assignment is a pure function of join order) — no roster broadcast needed. |
 | 5 Piece | not started |
 
 Known approximations (spec says / built does):

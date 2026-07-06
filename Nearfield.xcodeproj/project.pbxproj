@@ -14,9 +14,12 @@
 		3714682097BA433A0BF6BC45 /* reward_golden.json in Resources */ = {isa = PBXBuildFile; fileRef = 5689ACAB7AF9712707F89A4E /* reward_golden.json */; };
 		46090974BB312FBDE9F474E9 /* VoiceEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20CE9C5958840CF971464B6B /* VoiceEngine.swift */; };
 		4E306E509FC192897A6A1053 /* NearfieldApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1AFF821975E43488888CD72 /* NearfieldApp.swift */; };
+		50C5202F0785BD7E822C71BE /* MotionSensor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F76B869F0F5B02462B8EC468 /* MotionSensor.swift */; };
 		9492DA4F2A7A9EC853A5C1B7 /* scale.json in Resources */ = {isa = PBXBuildFile; fileRef = C1E1E5B6F0CC67FC759C3C50 /* scale.json */; };
 		95B17610906B225E9BACF3D0 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E78D4EB9B7A0874B969FD79 /* ContentView.swift */; };
 		B13395FD9353EF3ECE48A662 /* RewardCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 701A7D8F4D68DE9408ECC25F /* RewardCoreTests.swift */; };
+		B7AA0A8E978CCD55EFDBCAB2 /* NeighborSensor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B2295137A4F55070A3487D /* NeighborSensor.swift */; };
+		C35014CEB786F581D3D24364 /* Conductor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5D31B577D1AD1A9223A5178 /* Conductor.swift */; };
 		D73294D4989EF604E856C78A /* RewardCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D939F398C6F4A8090D9AD625 /* RewardCore.swift */; };
 		ECC7A8D07D88D08E0FD5483B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 351EE86A84F75CA01247C0F4 /* ContentView.swift */; };
 		F0D799E1763DC2939F74B059 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = D494DDF1E61BEDDAA50273BB /* Config.swift */; };
@@ -43,13 +46,16 @@
 		701A7D8F4D68DE9408ECC25F /* RewardCoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RewardCoreTests.swift; sourceTree = "<group>"; };
 		8BD28AC5102D8EF39C97D770 /* Nearfield.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Nearfield.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A5F1DBCF3F38C547B1872958 /* params.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = params.json; sourceTree = "<group>"; };
+		B0B2295137A4F55070A3487D /* NeighborSensor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NeighborSensor.swift; sourceTree = "<group>"; };
 		B1AFF821975E43488888CD72 /* NearfieldApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearfieldApp.swift; sourceTree = "<group>"; };
+		B5D31B577D1AD1A9223A5178 /* Conductor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Conductor.swift; sourceTree = "<group>"; };
 		BF1838F63472B1E72809CAFE /* HubClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HubClient.swift; sourceTree = "<group>"; };
 		C1E1E5B6F0CC67FC759C3C50 /* scale.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = scale.json; sourceTree = "<group>"; };
 		D494DDF1E61BEDDAA50273BB /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
 		D939F398C6F4A8090D9AD625 /* RewardCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RewardCore.swift; sourceTree = "<group>"; };
 		E05D1BE6FB7E96ABBE1D89AB /* NearfieldEnsembleTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = NearfieldEnsembleTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F66F23B128DBF0810C896C2B /* EnsembleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnsembleApp.swift; sourceTree = "<group>"; };
+		F76B869F0F5B02462B8EC468 /* MotionSensor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionSensor.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -115,11 +121,14 @@
 		F4B771C068D6E585657904B8 /* NearfieldEnsemble */ = {
 			isa = PBXGroup;
 			children = (
+				B5D31B577D1AD1A9223A5178 /* Conductor.swift */,
 				D494DDF1E61BEDDAA50273BB /* Config.swift */,
 				351EE86A84F75CA01247C0F4 /* ContentView.swift */,
 				F66F23B128DBF0810C896C2B /* EnsembleApp.swift */,
 				BF1838F63472B1E72809CAFE /* HubClient.swift */,
 				4FB92A1C7B6754CAE51D3E41 /* Info.plist */,
+				F76B869F0F5B02462B8EC468 /* MotionSensor.swift */,
+				B0B2295137A4F55070A3487D /* NeighborSensor.swift */,
 				D939F398C6F4A8090D9AD625 /* RewardCore.swift */,
 				20CE9C5958840CF971464B6B /* VoiceEngine.swift */,
 			);
@@ -253,10 +262,13 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C35014CEB786F581D3D24364 /* Conductor.swift in Sources */,
 				F0D799E1763DC2939F74B059 /* Config.swift in Sources */,
 				ECC7A8D07D88D08E0FD5483B /* ContentView.swift in Sources */,
 				20D03E6C27D8CB7E57B60DDE /* EnsembleApp.swift in Sources */,
 				01EE29B8DC029255D16172AA /* HubClient.swift in Sources */,
+				50C5202F0785BD7E822C71BE /* MotionSensor.swift in Sources */,
+				B7AA0A8E978CCD55EFDBCAB2 /* NeighborSensor.swift in Sources */,
 				D73294D4989EF604E856C78A /* RewardCore.swift in Sources */,
 				46090974BB312FBDE9F474E9 /* VoiceEngine.swift in Sources */,
 			);
