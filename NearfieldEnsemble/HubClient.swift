@@ -18,7 +18,10 @@ final class HubClient: NSObject, ObservableObject {
     @Published var assignment: AssignMessage?
     /// last score_position heartbeat: (score seconds, wall time received, ensemble size)
     @Published var scorePosition: (t: Double, at: Date, n: Int)?
-    @Published var host: String = UserDefaults.standard.string(forKey: "hubHost") ?? "127.0.0.1:8770"
+    // beta default: the always-on cloud hub; a laptop hub is a paste away
+    // (debug panel REJOIN accepts host:port or any http(s)/ws(s) URL)
+    @Published var host: String = UserDefaults.standard.string(forKey: "hubHost")
+        ?? "https://nearfield-hub-production.up.railway.app"
 
     private lazy var session: URLSession = URLSession(
         configuration: .default, delegate: SocketDelegate(client: self), delegateQueue: .main)

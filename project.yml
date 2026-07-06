@@ -27,12 +27,18 @@ targets:
       - path: NearfieldEnsemble
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.nearfield.ensemble
+        # TestFlight ships under the pre-existing ASC app record ("Nearfield
+        # Sonic") — the ASC API cannot create new app records headless. The
+        # v1 duet target moved to com.nearfield.duet.
+        PRODUCT_BUNDLE_IDENTIFIER: com.nearfield.app
+        MARKETING_VERSION: "0.2.0"
+        CURRENT_PROJECT_VERSION: 1
         TARGETED_DEVICE_FAMILY: "1"
         SWIFT_VERSION: "5.0"
         ENABLE_PREVIEWS: true
         GENERATE_INFOPLIST_FILE: true
         INFOPLIST_KEY_UILaunchScreen_Generation: true
+        INFOPLIST_KEY_CFBundleDisplayName: Nearfield
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     info:
       path: NearfieldEnsemble/Info.plist
@@ -53,6 +59,8 @@ targets:
         NSBluetoothPeripheralUsageDescription: "Bluetooth senses which other participants are near you; closeness shapes the sound."
         UIBackgroundModes:
           - audio
+        # ws/wss only; standard crypto — skips the export-compliance question
+        ITSAppUsesNonExemptEncryption: false
 
   NearfieldEnsembleTests:
     type: bundle.unit-test
@@ -85,7 +93,8 @@ targets:
     settings:
       base:
         INFOPLIST_FILE: Nearfield/Nearfield/Info.plist
-        PRODUCT_BUNDLE_IDENTIFIER: com.nearfield.app
+        # com.nearfield.app now belongs to the ensemble beta (see above)
+        PRODUCT_BUNDLE_IDENTIFIER: com.nearfield.duet
         TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_VERSION: "5.0"
         ENABLE_PREVIEWS: true
