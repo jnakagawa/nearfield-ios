@@ -31,6 +31,7 @@
 		ECC7A8D07D88D08E0FD5483B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 351EE86A84F75CA01247C0F4 /* ContentView.swift */; };
 		F0D799E1763DC2939F74B059 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = D494DDF1E61BEDDAA50273BB /* Config.swift */; };
 		F860539F82DA8E6EC13D50CD /* score.json in Resources */ = {isa = PBXBuildFile; fileRef = DF0B8B7E35DD64B9C3343190 /* score.json */; };
+		F8EE1CD78C720CF44352FE72 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 257876A31E053724E215BF88 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -45,6 +46,7 @@
 
 /* Begin PBXFileReference section */
 		20CE9C5958840CF971464B6B /* VoiceEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceEngine.swift; sourceTree = "<group>"; };
+		257876A31E053724E215BF88 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		2A6CB71613B44B9E10091952 /* visual.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = visual.html; sourceTree = "<group>"; };
 		351EE86A84F75CA01247C0F4 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		37B2F9FE9B9C3F48A28651C3 /* ConvolutionReverb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConvolutionReverb.swift; sourceTree = "<group>"; };
@@ -141,6 +143,7 @@
 		F4B771C068D6E585657904B8 /* NearfieldEnsemble */ = {
 			isa = PBXGroup;
 			children = (
+				257876A31E053724E215BF88 /* Assets.xcassets */,
 				B5D31B577D1AD1A9223A5178 /* Conductor.swift */,
 				D494DDF1E61BEDDAA50273BB /* Config.swift */,
 				351EE86A84F75CA01247C0F4 /* ContentView.swift */,
@@ -286,6 +289,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F8EE1CD78C720CF44352FE72 /* Assets.xcassets in Resources */,
 				D3DDB89ABDD27B9EF104A870 /* visual.html in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

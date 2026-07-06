@@ -35,3 +35,4 @@ Carthage/Build/
 # Build artifacts
 build/
 *.app
+__pycache__/

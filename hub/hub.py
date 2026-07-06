@@ -20,6 +20,8 @@ import websockets
 
 log = logging.getLogger("hub")
 
+SCORE_END_HOLD_S = 30  # how long the final-gong image lingers after the score ends
+
 ROLE_SHARE = {"anchor": 8, "shimmer": 6}  # one-in-N, matching params.roles
 
 
@@ -144,13 +146,29 @@ class Hub:
             except websockets.ConnectionClosed:
                 pass
 
+    def score_tick(self):
+        """One clock beat: the message to broadcast, or None. The score clears
+        itself after sitting at the end for SCORE_END_HOLD_S — the final
+        converged image lingers, then phones drop back to free hum
+        (fingerprints return, master fades back in). Without this, a finished
+        score parks every phone at the final-gong state forever."""
+        if self.score_started_at is None:
+            return None
+        elapsed = time.time() - self.score_started_at
+        duration = self.score["duration_s"]
+        if elapsed >= duration + SCORE_END_HOLD_S:
+            self.score_started_at = None
+            log.info("score finished (+%ds hold) — back to free hum", SCORE_END_HOLD_S)
+            return {"type": "score_stop"}
+        return {"type": "score_position", "t_s": min(elapsed, duration),
+                "n": len(self.clients)}
+
     async def score_clock(self):
         while True:
             await asyncio.sleep(1)
-            if self.score_started_at is not None:
-                t = min(time.time() - self.score_started_at, self.score["duration_s"])
-                await self.broadcast({"type": "score_position", "t_s": t,
-                                      "n": len(self.clients)})
+            msg = self.score_tick()
+            if msg is not None:
+                await self.broadcast(msg)
 
     def start_score(self):
         self.score_started_at = time.time()

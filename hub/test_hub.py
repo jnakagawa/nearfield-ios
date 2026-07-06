@@ -77,3 +77,22 @@ def test_join_round_trip():
     assert reply["clock"]["period_s"] > 0
     assert reply["role"] in ("anchor", "voice", "shimmer")
     assert reply["scale"]["scale_cents"] == [0.0, 551.2, 754.0, 957.5]
+
+
+def test_score_tick_lifecycle():
+    # not started -> silent; running -> position; end + hold -> one stop, then silent
+    import time as _time
+    from hub import SCORE_END_HOLD_S
+
+    hub = Hub(CONFIG_DIR, performance_id=7)
+    assert hub.score_tick() is None
+    hub.start_score()
+    msg = hub.score_tick()
+    assert msg["type"] == "score_position" and msg["t_s"] < 1
+    hub.score_started_at = _time.time() - hub.score["duration_s"] - 1
+    msg = hub.score_tick()  # inside the hold: still parked at the end
+    assert msg["type"] == "score_position" and msg["t_s"] == hub.score["duration_s"]
+    hub.score_started_at = _time.time() - hub.score["duration_s"] - SCORE_END_HOLD_S - 1
+    assert hub.score_tick()["type"] == "score_stop"
+    assert hub.score_started_at is None
+    assert hub.score_tick() is None

@@ -124,6 +124,8 @@ final class HubClient: NSObject, ObservableObject {
             if let t = obj["t_s"] as? Double {
                 scorePosition = (t, Date(), obj["n"] as? Int ?? 1)
             }
+        case "score_stop": // score over: back to free hum
+            scorePosition = nil
         default:
             break // params_update arrives with the dashboard phase
         }

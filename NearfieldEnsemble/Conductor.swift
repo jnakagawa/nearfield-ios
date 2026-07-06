@@ -82,6 +82,14 @@ final class Conductor: ObservableObject {
         var fingerprintAmp = params.drift.fingerprintAmplitude
         var entryGate = 1.0
         var anchorSwellOverride: Double? = nil
+        // stale-clock fallback: if the hub vanished (or predates score_stop)
+        // and the free-run clock has sat at the end past the hold, the score
+        // is over — otherwise a finished score parks the phone at the
+        // final-gong state (silent, converged bullseye) forever
+        if let pos = hub?.scorePosition, let sc = a.score,
+           pos.t + Date().timeIntervalSince(pos.at) >= sc.durationS + 30 {
+            hub?.scorePosition = nil
+        }
         let scoreRunning = hub?.scorePosition != nil
         if scoreRunning, let engine = scoreEngine, let pos = hub?.scorePosition {
             let t = min(pos.t + Date().timeIntervalSince(pos.at), 960)
@@ -123,6 +131,9 @@ final class Conductor: ObservableObject {
             if a.role == "anchor", let g = gongStartedAt, t - g < 20 {
                 anchorSwellOverride = sin(.pi * (t - g) / 20)
             }
+        } else {
+            scoreLabel = nil // free hum: no score chrome, defaults above apply
+            gongStartedAt = nil
         }
         lastFingerprintAmp = fingerprintAmp
 
