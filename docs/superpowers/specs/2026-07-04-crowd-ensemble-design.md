@@ -3,7 +3,8 @@
 - **Date:** 2026-07-04 (rev 2, 2026-07-05: BLE-only sensing; proximity demoted to coarse
   encounters. rev 3, 2026-07-05: scored 16-minute form §12, tuning drift + performance
   seed §13. rev 5, 2026-07-05: visual identity §14 — interference topography. rev 7,
-  2026-07-05: hub projection §16 — the wall)
+  2026-07-05: hub projection §16 — the wall. rev 8, 2026-07-06: §16 reworked — on-frame
+  cells rejected (read as randomized bullseyes); kaleidoscopic modes + fold)
 - **Status:** Approved design; phases 1–2 (derive + simulator) implemented
 - **Scope:** 10–50 phone distributed audio artwork, hub-coordinated, native iOS, with a laptop simulator
 
@@ -657,30 +658,39 @@ ensemble emits exact /status v1 frames; the renderer consumes only those).
   no different from walking — the piece never rewards shaking). Approach
   someone → a bridge lights between your cells at the moment both phones
   bloom. Join → your cell ripples into the field (arrival fade ~4 s).
-- **Solitude reads as containment.** An isolated, still participant is a
-  small concentric ring family — the one place the piece shows a bullseye
-  before the final gong, and it dissolves the moment they interact. (Phones
-  ban solo bullseyes because the private view must never have a focal point;
-  the wall showing *aloneness* as containment is the intended inversion.)
+- **No centers, ever (rev 8).** The first build placed each participant's
+  sources on-frame at their layout position; thirty on-frame point sources
+  read as randomized bullseyes (rejected 2026-07-06). The wall obeys the same
+  rule as the phones: wave sources never sit inside the frame. The target is
+  a psychedelic, kaleidoscopic field — dense moiré, composed rather than
+  scattered.
 - **Final gong:** all cells converge to one center bullseye exactly as every
   phone's sources converge to its own screen center — room and wall land on
   the same earned image together.
 
-### 16.2 Layout model — "leaves in the wind"
+### 16.2 Treatments — modes as performance controls (rev 8)
 
-(Chosen over the colotomic-ring and pure-superposition alternatives.)
-Positions are synthetic (BLE yields an interaction graph, not locations):
+Three renderings of the same live state ship together; the operator picks
+per performance (they are controls, not build variants). A **kaleidoscope
+fold** (mirror wedge, 1–12×) composes with every mode; folded, the whole
+ensemble becomes one mandala. Defaults: FIELD, fold 8, density gain 1.9.
 
-- Seeded home: `mulberry32(fnv1a(id|performance_id|wall))`, spread ±0.72 ×
-  ±0.40 (min 0.12 from center), unit = min screen dimension.
-- Wind wander: velocity noise σ = (0.004 + 0.028·W)·drift — a walker's cell
-  breathes and wanders; a still one settles.
-- Encounter springs: inferred edges pull ∝ 0.5·e, stopping at min distance
-  0.22 (cells never fuse); soft pairwise repulsion inside 0.16 (the anti-blob
-  lesson from the Dance sim); home pull 0.25/s; damping 0.6^dt.
-- Final-gong convergence: positions ×(1−cv), influence radius ×(1+1.5·cv),
-  cv driven by the score's fingerprint_amplitude curve so wall and phones
-  converge from the same data.
+- **FIELD (default):** every participant contributes a source family placed
+  entirely OFF-frame — radius 1.25, azimuth seeded
+  `mulberry32(fnv1a(id|performance_id|dir))`, partials fanned +0.15 rad.
+  Encounters align azimuths (both parties pulled together ∝ 0.25·e·spring):
+  interacting families weave into each other. Final gong: source radius
+  ×(1−0.98·cv) — everything collapses to the earned center.
+- **OP-ART:** each participant is a straight grating at seeded orientation
+  (λ ×0.6); near wavelengths produce large moiré. Partials fan +0.22 rad;
+  encounters align orientations. Final gong: all gratings rotate to a common
+  angle — unison bars.
+- **CELLS:** the rev-7 positional layout (seeded homes, wind wander,
+  encounter springs stopping at 0.22, repulsion inside 0.16, home pull
+  0.25/s), kept for soundcheck legibility and comparison — under a fold its
+  centers become rosettes. Bridge corridors render only in this mode.
+- cv (convergence) is driven by the score's fingerprint_amplitude curve in
+  every mode, so wall and phones converge from the same data.
 
 ### 16.3 Data path
 
