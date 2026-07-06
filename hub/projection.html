@@ -8,11 +8,33 @@
   html, body { margin:0; height:100%; background:#000; overflow:hidden;
                font:12px/1.5 -apple-system, sans-serif; color:#9a9aa6; }
   canvas { position:fixed; inset:0; width:100%; height:100%; }
+  #labels { pointer-events:none; }
+  #bar { position:fixed; top:0; left:0; right:0; padding:10px 14px; display:flex;
+         gap:16px; align-items:baseline; background:linear-gradient(#000c, #0000); }
+  #bar b { color:#d8d8de; letter-spacing:.25em; font-weight:600; }
+  #panel { position:fixed; right:10px; top:44px; width:230px; background:#101016ee;
+           border:1px solid #26262e; border-radius:8px; padding:10px 12px; }
+  #panel label { display:flex; justify-content:space-between; align-items:center;
+                 gap:8px; margin:5px 0; }
+  #panel input[type=range] { width:120px; }
+  #panel .val { font-variant-numeric:tabular-nums; color:#d8d8de; width:34px; text-align:right; }
+  button { background:#1c1c2a; color:#fff; border:1px solid #5a5aff; border-radius:999px;
+           padding:5px 14px; letter-spacing:.08em; cursor:pointer; font-size:11px; margin:3px 4px 0 0; }
+  .hidden { display:none !important; }
 </style>
 </head>
 <body>
 <canvas id="gl"></canvas>
 <canvas id="labels"></canvas>
+<div id="bar" class="hidden"><b>NEARFIELD</b> <span>projection</span>
+  <span id="stats"></span></div>
+<div id="panel" class="hidden">
+  <label>drift <input type="range" id="uDrift" min="0" max="3" step="0.05" value="1"><span class="val"></span></label>
+  <label>spring <input type="range" id="uSpring" min="0" max="3" step="0.05" value="1"><span class="val"></span></label>
+  <label>influence r <input type="range" id="uRad" min="0.15" max="0.8" step="0.01" value="0.42"><span class="val"></span></label>
+  <label>density gain <input type="range" id="uDens" min="0" max="3" step="0.05" value="1"><span class="val"></span></label>
+  <button id="bNums">NUMBERS</button>
+</div>
 <script id="projection-core">
 'use strict';
 // Pure logic for the §16 wall. Tested headlessly by
@@ -120,7 +142,233 @@ if(typeof globalThis!=='undefined'){
     pairBeatHz,scoreValueAt,updateEdges,seedHome,stepLayout,lamFor});
 }
 </script>
-<!-- SHELL -->
-<script>const NF_SCORE = /*NF_SCORE*/ null;</script>
+<script>
+'use strict';
+// §16 renderer shell: /status polling in, interference field out. The core
+// functions come from the projection-core block above (same document).
+const NF_SCORE = /*NF_SCORE*/ null; // hub inlines config/score.json here
+
+// ---------- state -------------------------------------------------------------
+const P={byId:new Map(),edges:new Map(),perf:null,scoreT:null,scoreAt:0,
+         gongT:null,firedGongs:new Set()};
+let statusOk=false;
+
+async function poll(){
+  try{
+    const u=new URL('status'+location.search,location.href);
+    const s=await(await fetch(u)).json();
+    statusOk=true;
+    if(P.perf!==null&&s.performance_id!==P.perf){P.byId.clear();P.edges.clear();P.firedGongs.clear();}
+    P.perf=s.performance_id;
+    P.scoreT=s.score_t;P.scoreAt=performance.now()/1000;
+    ingest(s);
+  }catch(e){statusOk=false;}
+}
+setInterval(poll,1000);poll();
+
+function ingest(frame){
+  for(const p of frame.participants){
+    let s=P.byId.get(p.id);
+    if(!s){
+      const home=seedHome(p.id,P.perf);
+      s={id:p.id,role:p.role,pitch:p.pitch_hz,home,x:home.x,y:home.y,vx:0,vy:0,
+         W:0,B:0,det:0,arrive:0,phase:mulberry32(fnv1a(p.id+'|ph'))()*6.28};
+      P.byId.set(p.id,s);
+    }
+    const tm=p.telemetry||{};
+    s.tW=clamp(tm.W||0,0,1);s.tB=clamp(tm.B||0,0,1);s.tDet=tm.detune_cents||0;
+    s.online=p.online;
+  }
+  updateEdges(P.edges,frame,1); // 1 s between polls
+}
+
+// score position free-runs between polls, like the phones (§12.3)
+function scoreNow(){
+  if(P.scoreT===null)return null;
+  return Math.min(P.scoreT+(performance.now()/1000-P.scoreAt),NF_SCORE?NF_SCORE.duration_s:960);
+}
+
+// ---------- WebGL ---------------------------------------------------------------
+const MAXS=64,MAXB=16;
+const canvas=document.getElementById('gl');
+const gl=canvas.getContext('webgl',{antialias:true});
+gl.getExtension('OES_standard_derivatives');
+const FS=`
+#extension GL_OES_standard_derivatives : enable
+precision highp float;
+uniform vec2 res;uniform float breathScale,rad;uniform int nSrc,nBr;
+uniform vec4 srcA[${MAXS}]; // x, y, lambda, weight
+uniform vec2 srcB[${MAXS}]; // phase(static), densVal
+uniform vec4 brA[${MAXB}];  // ax, ay, bx, by
+uniform vec4 brB[${MAXB}];  // lamA, lamB, phase(animated), strength
+float hair(float v,float n,float w){
+  float q=v*n;float d=abs(fract(q)-0.5)/(fwidth(q)+1e-5);
+  return 1.0-smoothstep(w,w+1.0,d);}
+float segDist(vec2 p,vec2 a,vec2 b){
+  vec2 ab=b-a;float t=clamp(dot(p-a,ab)/(dot(ab,ab)+1e-6),0.0,1.0);
+  return length(p-(a+ab*t));}
+void main(){
+  vec2 uv=(gl_FragCoord.xy-0.5*res)/min(res.x,res.y);
+  uv*=breathScale;
+  float v=0.0;float g=1e-4;float dn=0.0;
+  for(int k=0;k<${MAXS};k++){
+    if(k>=nSrc)break;
+    float r=length(uv-srcA[k].xy);
+    float att=srcA[k].w*smoothstep(rad,rad*0.3,r);
+    v+=att*cos(6.2831853*r/srcA[k].z+srcB[k].x);
+    g+=att;dn+=att*srcB[k].y;
+  }
+  // §16.4 bridges: motion lives here, at the audible beat rate
+  for(int k=0;k<${MAXB};k++){
+    if(k>=nBr)break;
+    float corr=brB[k].w*smoothstep(0.16,0.05,segDist(uv,brA[k].xy,brA[k].zw));
+    float rA=length(uv-brA[k].xy);float rB=length(uv-brA[k].zw);
+    v+=corr*0.5*(cos(6.2831853*rA/brB[k].x+brB[k].z)
+                +cos(6.2831853*rB/brB[k].y-brB[k].z));
+    g+=corr;
+  }
+  float c=hair(v/g,max(dn/g,0.5),0.7);
+  gl_FragColor=vec4(vec3(c*smoothstep(0.0,0.02,g)),1.0);
+}`;
+function compile(t,src){const s=gl.createShader(t);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s;}
+const prog=gl.createProgram();
+gl.attachShader(prog,compile(gl.VERTEX_SHADER,'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}'));
+gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(prog);
+const quad=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+const labels=document.getElementById('labels');const lctx=labels.getContext('2d');
+function resize(){const dpr=Math.min(devicePixelRatio||1,2);
+  canvas.width=innerWidth*dpr;canvas.height=innerHeight*dpr;
+  labels.width=innerWidth*dpr;labels.height=innerHeight*dpr;}
+addEventListener('resize',resize);resize();
+
+// ---------- chrome ---------------------------------------------------------------
+for(const id of['uDrift','uSpring','uRad','uDens']){
+  const el=document.getElementById(id);
+  const show=()=>el.parentElement.querySelector('.val').textContent=(+el.value).toFixed(2);
+  el.oninput=show;show();
+}
+const uiVal=id=>+document.getElementById(id).value;
+let showNums=false,chromeOn=false;
+document.getElementById('bNums').onclick=()=>showNums=!showNums;
+addEventListener('keydown',e=>{if(e.key==='h'){chromeOn=!chromeOn;
+  document.getElementById('bar').classList.toggle('hidden',!chromeOn);
+  document.getElementById('panel').classList.toggle('hidden',!chromeOn);}});
+
+// ---------- advance + render ------------------------------------------------------
+const bridgePhases=new Map(); // pairKey -> phase
+let lastT=null,breath=0;
+function advance(){
+  const now=performance.now()/1000;
+  let el=lastT===null?0.016:Math.min(now-lastT,2);lastT=now;
+  while(el>0){
+    const dt=Math.min(el,0.05);el-=dt;
+    const cells=[...P.byId.values()];
+    for(const s of cells){
+      s.W+=((s.tW??0)-s.W)*alphaFor(dt,2);s.B+=((s.tB??0)-s.B)*alphaFor(dt,1.5);
+      s.det+=((s.tDet||0)-s.det)*alphaFor(dt,2);
+      s.arrive=Math.min(1,s.arrive+dt/4);
+    }
+    const edgesArr=[...P.edges.entries()].map(([k,ed])=>{
+      const[a,b]=k.split('|').map(Number);return{a,b,e:ed.e,key:k};});
+    stepLayout(cells,edgesArr,dt,{drift:uiVal('uDrift'),spring:uiVal('uSpring')},Math.random);
+    // bridge fringe phases advance at the audible pair beat (§14.2 rule)
+    for(const ed of edgesArr){
+      const A=P.byId.get(ed.a),B=P.byId.get(ed.b);
+      if(!A||!B)continue;
+      const fA=A.pitch*Math.pow(2,A.det/1200),fB=B.pitch*Math.pow(2,B.det/1200);
+      bridgePhases.set(ed.key,(bridgePhases.get(ed.key)||0)
+        +6.2831853*pairBeatHz(fA,fB,RATIOS)*dt);
+    }
+    breath+=dt*2*Math.PI/12;
+  }
+}
+setInterval(()=>{if(performance.now()/1000-(lastT??0)>0.3)advance();},250);
+
+function frame(){
+  requestAnimationFrame(frame);
+  advance();
+  const t=performance.now()/1000;
+  const st=scoreNow();
+  // convergence rides the same curve as the phones' fingerprints (§16.2)
+  const fp=st===null?1:(scoreValueAt(NF_SCORE,'drift.fingerprint_amplitude',st)??1);
+  const cv=1-fp;
+  // section/final gong swells
+  if(st!==null&&NF_SCORE)for(const ev of NF_SCORE.events){
+    if(st>=ev.at_s&&!P.firedGongs.has(ev.at_s)){P.firedGongs.add(ev.at_s);P.gongT=t;}
+  }
+  const cells=[...P.byId.values()];
+  const byB=[...cells].sort((a,b)=>b.B-a.B);
+  const rich=new Set(byB.slice(0,8).map(s=>s.id));
+  const A=new Float32Array(MAXS*4),Bu=new Float32Array(MAXS*2);let n=0;
+  for(const s of cells){
+    if(n>=MAXS)break;
+    const px=s.x*(1-cv),py=s.y*(1-cv);
+    const dim=s.online?1:0.4;                      // offline cells recede
+    const dens=(2+2*s.W)*uiVal('uDens');
+    const f0=s.pitch*Math.pow(2,s.det/1200);
+    const nP=rich.has(s.id)?4:1;
+    for(let k=0;k<nP&&n<MAXS;k++){
+      const th=[0,0.15,0.4,0.65][k];
+      const w=AMPS[k]*(k===0?1:clamp((s.B-th)/0.2,0,1));
+      if(w<0.02)continue;
+      A[n*4]=px;A[n*4+1]=py;
+      A[n*4+2]=lamFor(f0*RATIOS[k]);
+      A[n*4+3]=w*s.arrive*dim;
+      Bu[n*2]=s.phase;Bu[n*2+1]=dens;              // ambient phase: static (§16.4)
+      n++;
+    }
+  }
+  // strongest bridges into the ≤16 slots
+  const brList=[...P.edges.entries()]
+    .map(([k,ed])=>{const[a,b]=k.split('|').map(Number);
+      return{k,e:ed.e,A:P.byId.get(a),B:P.byId.get(b)};})
+    .filter(x=>x.A&&x.B&&x.e>0.05)
+    .sort((x,y)=>y.e-x.e).slice(0,MAXB);
+  const bA=new Float32Array(MAXB*4),bB=new Float32Array(MAXB*4);
+  brList.forEach((br,i)=>{
+    bA[i*4]=br.A.x*(1-cv);bA[i*4+1]=br.A.y*(1-cv);
+    bA[i*4+2]=br.B.x*(1-cv);bA[i*4+3]=br.B.y*(1-cv);
+    const fA=br.A.pitch*Math.pow(2,br.A.det/1200),fB=br.B.pitch*Math.pow(2,br.B.det/1200);
+    bB[i*4]=lamFor(fA);bB[i*4+1]=lamFor(fB);
+    bB[i*4+2]=bridgePhases.get(br.k)||0;bB[i*4+3]=br.e;
+  });
+  let bs=1+0.012*Math.sin(breath);
+  if(P.gongT!==null){const g=t-P.gongT;if(g<20)bs*=1+0.05*Math.sin(Math.PI*g/20);else P.gongT=null;}
+  gl.viewport(0,0,canvas.width,canvas.height);
+  gl.useProgram(prog);
+  const loc=nm=>gl.getUniformLocation(prog,nm);
+  gl.uniform2f(loc('res'),canvas.width,canvas.height);
+  gl.uniform1f(loc('breathScale'),bs);
+  gl.uniform1f(loc('rad'),uiVal('uRad')*(1+1.5*cv));
+  gl.uniform1i(loc('nSrc'),n);
+  gl.uniform1i(loc('nBr'),brList.length);
+  gl.uniform4fv(loc('srcA'),A);
+  gl.uniform2fv(loc('srcB'),Bu);
+  gl.uniform4fv(loc('brA'),bA);
+  gl.uniform4fv(loc('brB'),bB);
+  const pA=gl.getAttribLocation(prog,'p');
+  gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+  gl.enableVertexAttribArray(pA);
+  gl.vertexAttribPointer(pA,2,gl.FLOAT,false,0,0);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+
+  lctx.clearRect(0,0,labels.width,labels.height);
+  if(showNums){
+    lctx.font=`${12*Math.min(devicePixelRatio,2)}px -apple-system`;lctx.fillStyle='#8888ff';
+    const m=Math.min(labels.width,labels.height);
+    for(const s of cells){
+      const px=labels.width/2+s.x*(1-cv)*m,py=labels.height/2-s.y*(1-cv)*m;
+      lctx.fillText(`#${s.id} ${s.role[0]} W${s.W.toFixed(1)}`,px+6,py-6);
+    }
+  }
+  document.getElementById('stats').textContent=
+    `${cells.length} phones · ${brList.length} bridges · ${n} sources`
+    +(statusOk?'':' · NO HUB')+(st!==null?` · score ${Math.floor(st/60)}:${String(Math.floor(st%60)).padStart(2,'0')}`:'');
+}
+requestAnimationFrame(frame);
+</script>
 </body>
 </html>
