@@ -31,7 +31,8 @@
 </head>
 <body>
 <div id="bar">
-  <button data-mode="0" class="active">1 topo</button>
+  <button data-mode="4" class="active">0 nested</button>
+  <button data-mode="0">1 topo</button>
   <button data-mode="1">2 reveal</button>
   <button data-mode="2">3 lines</button>
   <button data-mode="3">4 moiré</button>
@@ -69,6 +70,7 @@
 // ============================================================================
 
 const WORD = 'NEARFIELD';
+const WORD_LC = 'nearfield';
 const TW = 2048, TH = 512;   // text texture size
 
 function mulberry32(seed) {
@@ -119,21 +121,20 @@ function chamfer(mask, W, H, seedInside) {
 
 const SDF_RANGE = 120;
 
-function buildTextTexture(tracking) {
+function buildTextTexture(tracking, word, font, size) {
   const c = document.createElement('canvas');
   c.width = TW; c.height = TH;
   const g = c.getContext('2d', { willReadFrequently: true });
   g.fillStyle = '#000'; g.fillRect(0, 0, TW, TH);
   g.fillStyle = '#fff';
-  const size = 210;
-  g.font = `500 ${size}px Futura, "Avenir Next", Avenir, "Helvetica Neue", sans-serif`;
+  g.font = font.replace('SIZE', size);
   g.textBaseline = 'middle';
-  const widths = [...WORD].map(ch => g.measureText(ch).width);
+  const widths = [...word].map(ch => g.measureText(ch).width);
   const trackPx = tracking * size;
-  const total = widths.reduce((a, b) => a + b, 0) + trackPx * (WORD.length - 1);
+  const total = widths.reduce((a, b) => a + b, 0) + trackPx * (word.length - 1);
   let x = (TW - total) / 2;
-  for (let i = 0; i < WORD.length; i++) {
-    g.fillText(WORD[i], x, TH / 2 + size * 0.03);
+  for (let i = 0; i < word.length; i++) {
+    g.fillText(word[i], x, TH / 2 + size * 0.03);
     x += widths[i] + trackPx;
   }
   const img = g.getImageData(0, 0, TW, TH).data;
@@ -201,7 +202,7 @@ void main(){
     float wave = sin(st.x * 90.0 + t * 0.8) * 0.55 + sin(st.x * 41.0 - t * 0.5) * 0.45;
     float y = st.y + amp * wave * (0.16 / density) * lockE;
     c = hair(y * rows, weight);
-  } else {
+  } else if (mode < 3.5) {
     // 4 MOIRE: two fine line screens; inside the word the second screen is
     // rotated a hair differently — the word is a moire discontinuity
     float spacing = 0.02 / density;
@@ -211,6 +212,18 @@ void main(){
     float a2 = a + da + 0.045 * mask;
     float l2 = hair(rot(uv, a2).y / spacing, weight);
     c = max(l1, l2) * 0.72;
+  } else {
+    // 0 NESTED: fat rounded lowercase glyphs drawn as a handful of wobbling
+    // contour strokes nesting inward — liquid topographic lettering. No
+    // radiating field: nothing exists beyond the outermost contour.
+    vec2 p = st * vec2(9.0, 2.25);
+    float wob = sin(p.x * 1.9 + 1.3) * sin(p.y * 2.1 + 0.7)
+              + 0.45 * sin(p.x * 4.1 + 4.0 + t * 0.05) * sin(p.y * 3.7 + 2.9);
+    float spacing = 18.0 / density;
+    float sd = sdf - 16.0 + wob * spacing * 0.34;   // fatten boundary outward 16px
+    float q = sd / spacing - 0.5;                   // lines at sd = k*spacing exactly
+    c = hair(q, weight * 2.2);
+    c *= step(sd, spacing * 0.25);                  // outermost ring is the boundary
   }
   float lum = mix(1.0 - c, c, ink);
   gl_FragColor = vec4(vec3(lum), 1.0);
@@ -235,21 +248,29 @@ const quad = gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER, quad);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
 
-const texture = gl.createTexture();
-function uploadText() {
-  const px = buildTextTexture(parseFloat(tracking.value));
-  gl.bindTexture(gl.TEXTURE_2D, texture);
+const texture = gl.createTexture();      // caps, geometric (modes 0-3)
+const textureLC = gl.createTexture();    // lowercase, rounded, fat (nested mode)
+function uploadOne(tex, px) {
+  gl.bindTexture(gl.TEXTURE_2D, tex);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, TW, TH, 0, gl.RGBA, gl.UNSIGNED_BYTE, px);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 }
+function uploadText() {
+  const tr = parseFloat(tracking.value);
+  uploadOne(texture, buildTextTexture(tr, WORD,
+    '500 SIZEpx Futura, "Avenir Next", Avenir, "Helvetica Neue", sans-serif', 210));
+  uploadOne(textureLC, buildTextTexture(tr * 0.3, WORD_LC,
+    '800 SIZEpx "Arial Rounded MT Bold", "SF Pro Rounded", "Nunito", sans-serif', 270));
+}
 
 // --- state / controls -----------------------------------------------------------
 
-let mode = '0';
-let dark = false;
+let mode = '4';
+let dark = true;
+document.body.classList.add('dark');
 let lockAnim = { running: false, start: 0 };
 const density = document.getElementById('density');
 const weight = document.getElementById('weight');
@@ -346,7 +367,7 @@ function frame(ms) {
   gl.useProgram(prog);
   const loc = n => gl.getUniformLocation(prog, n);
   gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.bindTexture(gl.TEXTURE_2D, mode === '4' ? textureLC : texture);
   gl.uniform1i(loc('tex'), 0);
   gl.uniform2f(loc('res'), glc.width, glc.height);
   gl.uniform1f(loc('t'), ms / 1000);
