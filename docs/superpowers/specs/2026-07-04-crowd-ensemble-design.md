@@ -602,15 +602,22 @@ constant-width hairlines (`fract` iso-lines normalized by `fwidth`; reference GL
   when the screen is off or the app is backgrounded — audio (§ Media Session) is
   unaffected.
 
-### 14.4a Logotype (chosen 2026-07-05)
+### 14.4a Logotype & icon (chosen 2026-07-05)
 
-The canonical logotype is **`identity/nearfield-logotype.png`** (2172×724, white on
-black): lowercase "nearfield" in fat rounded glyphs drawn as nested wobbling contour
-strokes — liquid topographic lettering, no radiating field. Selected over the four
-generative studies in `simulator/logotype.html`; the sketchpad's "nested" mode remains
-the generative recipe closest to it (SDF-fattened rounded glyphs, inward iso-lines,
-hash-noise wobble) for re-deriving variants, animations (lock-in splash), or other
-resolutions.
+Canonical assets in `identity/`:
+
+- **`nearfield-logotype-dark.png`** (2172×724, white on black) and
+  **`nearfield-logotype-ink.png`** (black on white) — lowercase "nearfield" in fat
+  rounded glyphs drawn as nested wobbling contour strokes; liquid topographic lettering,
+  no radiating field.
+- **`nearfield-icon-source.png`** (1254×1254) — the app icon: the word half-submerged in
+  a full-bleed contour terrain, the §14 field with the name surfacing from it. Shipped in
+  the app as `NearfieldEnsemble/Assets.xcassets/AppIcon.appiconset` (single-size 1024,
+  opaque; iOS applies its own mask).
+
+The sketchpad (`simulator/logotype.html`, "nested" mode) remains the generative recipe
+closest to the mark (SDF-fattened rounded glyphs, inward iso-lines, hash-noise wobble)
+for variants, the lock-in splash animation, and alternate resolutions.
 
 ### 14.4 Identity applications
 
