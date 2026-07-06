@@ -2,7 +2,8 @@
 
 - **Date:** 2026-07-04 (rev 2, 2026-07-05: BLE-only sensing; proximity demoted to coarse
   encounters. rev 3, 2026-07-05: scored 16-minute form §12, tuning drift + performance
-  seed §13. rev 5, 2026-07-05: visual identity §14 — interference topography)
+  seed §13. rev 5, 2026-07-05: visual identity §14 — interference topography. rev 7,
+  2026-07-05: hub projection §16 — the wall)
 - **Status:** Approved design; phases 1–2 (derive + simulator) implemented
 - **Scope:** 10–50 phone distributed audio artwork, hub-coordinated, native iOS, with a laptop simulator
 
@@ -426,7 +427,7 @@ visible. Update when a phase lands or an approximation is resolved.)
 | 2 Simulate | ✅ score, drift, voicing, ombak, §14 phone view; 18 tests |
 | 3 Hum | ✅ hub (4 tests) + `NearfieldEnsemble`; hardware-verified 2026-07-05 (iPhone 13 mini joined over tailnet as shimmer 626.1 Hz) |
 | 4 Dance | ✅ code-complete: Swift RewardCore fixture-validated vs the JS core (4 XCTests, §9 contract); NeighborSensor (BLE) + MotionSensor + 5 Hz Conductor driving VoiceEngine; debug injection panel; loop verified live in simulator. **Two-phone BLE field test pending.** Peers' pitches derived locally from participant id (assignment is a pure function of join order) — no roster broadcast needed. |
-| 5 Piece | ▶ in progress: score playback on phones ✅ (ScoreEngine + interpolateScale fixture-validated, 3 XCTests; free-run clock from hub heartbeats; live param patches; drift pitch glides; buka entry stagger; synchronized gong swells; whole-voice envelope); hub dashboard + score transport ✅ (verified end-to-end: START SCORE → sim phone entered buka with telemetry flowing); §14 shader main screen ✅ (`visual.html` in a WKWebView visual layer, `VisualBridge` push at 5 Hz from the Conductor — same state as the audio; tap toggles the status chrome; per-frame JS smoothing + audible-beat fringe drift per §14.2). generated-IR convolution reverb ✅ (`ConvolutionReverb.swift`: vDSP uniform-partitioned FFT convolution, IR ported exactly from the simulator's `rebuildReverbIR` via the shared Mulberry32; 3 XCTests incl. direct-convolution parity; ~0.5% of one core for the 5.5 s IR). Remaining: TestFlight distribution. |
+| 5 Piece | ▶ in progress: score playback on phones ✅ (ScoreEngine + interpolateScale fixture-validated, 3 XCTests; free-run clock from hub heartbeats; live param patches; drift pitch glides; buka entry stagger; synchronized gong swells; whole-voice envelope); hub dashboard + score transport ✅ (verified end-to-end: START SCORE → sim phone entered buka with telemetry flowing); §14 shader main screen ✅ (`visual.html` in a WKWebView visual layer, `VisualBridge` push at 5 Hz from the Conductor — same state as the audio; tap toggles the status chrome; per-frame JS smoothing + audible-beat fringe drift per §14.2). generated-IR convolution reverb ✅ (`ConvolutionReverb.swift`: vDSP uniform-partitioned FFT convolution, IR ported exactly from the simulator's `rebuildReverbIR` via the shared Mulberry32; 3 XCTests incl. direct-convolution parity; ~0.5% of one core for the 5.5 s IR). Remaining: TestFlight distribution; hub projection view (§16). |
 
 Known approximations (spec says / built does):
 - **§5.5 reverb:** ~~AVAudioUnitReverb stand-in~~ resolved 2026-07-05:
@@ -637,3 +638,94 @@ the shader and one typeface (a light geometric sans, tracked wide, as in the ske
 - Performance recording/documentation rig.
 - Metal port of the §14 shader (only if WKWebView profiling demands it).
 - Android.
+
+## 16. Hub projection: the wall (rev 7)
+
+One shared view of the whole ensemble, projected at the venue — the phones are
+windows into a field; the wall *is* the field, in the same visual language as
+§14 (black ground, fwidth-normalized hairline contours, no color). Reference
+implementation of the layout and feel: `simulator/projection.html` (a fake
+ensemble emits exact /status v1 frames; the renderer consumes only those).
+
+### 16.1 Concept and identity
+
+- **"Your screen is a crop of this wall."** Every participant is a source
+  family on a shared plane; phones show the waves that reach them, the wall
+  shows all of them meeting.
+- **Identity through causality, no labels in art mode.** Walk → your cell's
+  line density rises (W → density, response clamped so vigorous shaking looks
+  no different from walking — the piece never rewards shaking). Approach
+  someone → a bridge lights between your cells at the moment both phones
+  bloom. Join → your cell ripples into the field (arrival fade ~4 s).
+- **Solitude reads as containment.** An isolated, still participant is a
+  small concentric ring family — the one place the piece shows a bullseye
+  before the final gong, and it dissolves the moment they interact. (Phones
+  ban solo bullseyes because the private view must never have a focal point;
+  the wall showing *aloneness* as containment is the intended inversion.)
+- **Final gong:** all cells converge to one center bullseye exactly as every
+  phone's sources converge to its own screen center — room and wall land on
+  the same earned image together.
+
+### 16.2 Layout model — "leaves in the wind"
+
+(Chosen over the colotomic-ring and pure-superposition alternatives.)
+Positions are synthetic (BLE yields an interaction graph, not locations):
+
+- Seeded home: `mulberry32(fnv1a(id|performance_id|wall))`, spread ±0.72 ×
+  ±0.40 (min 0.12 from center), unit = min screen dimension.
+- Wind wander: velocity noise σ = (0.004 + 0.028·W)·drift — a walker's cell
+  breathes and wanders; a still one settles.
+- Encounter springs: inferred edges pull ∝ 0.5·e, stopping at min distance
+  0.22 (cells never fuse); soft pairwise repulsion inside 0.16 (the anti-blob
+  lesson from the Dance sim); home pull 0.25/s; damping 0.6^dt.
+- Final-gong convergence: positions ×(1−cv), influence radius ×(1+1.5·cv),
+  cv driven by the score's fingerprint_amplitude curve so wall and phones
+  converge from the same data.
+
+### 16.3 Data path
+
+- **v1 (build this): zero protocol changes.** Poll `GET /status` at 1 Hz —
+  roster (id, role, pitch_hz, online) + telemetry {W, B, focus,
+  detune_cents}. Edges inferred from focus fields (either direction), e:
+  attack τ3 s while present, release τ6 s. Presentation smoothing W τ2, B
+  τ1.5. Score position from `score_t`; gong/convergence timing evaluated
+  client-side against the score (the hub inlines score.json into the page).
+- **v2 (optional bump, not built yet):** telemetry adds top-3 {peer_id, E} →
+  weighted mesh instead of single-focus edges.
+
+### 16.4 Rendering
+
+- Per-source windowed influence: contribution = w·smoothstep(rad, 0.3·rad, r)
+  — keeps neighborhoods local and the GPU bounded; rad default 0.42.
+- Interference exactly as §14.2: v = Σ att·cos(2πr/λ + φ) / Σ att; hairline
+  extraction via the same hair() (fwidth-normalized).
+- Density is a *field*: attenuation-weighted average of each owner's
+  (2 + 2·W) — your patch of wall densifies when you move.
+- λ mapping compressed for wall scale: λ = clamp(0.16·(220/f)^0.55, 0.035,
+  0.4), f = sounding frequency (pitch bent by detune_cents).
+- LOD: fundamentals always; partials 2–4 only for the top-8 cells by bloom
+  (thresholds .15/.4/.65, window .2, amps ×[1,.5,.3,.2]); ≤64 sources total.
+- **Fringe motion (aligned with phones — the sketch approximates this):**
+  the ambient field is static (per-source phases fixed; a global ≤0.02 Hz
+  drift is available as a tuning knob); motion lives in the *bridges*. Each active encounter pair renders a
+  corridor-localized two-source interference term whose phase advances at the
+  §14.2 audible beat rate — pairBeatHz(fA, fB, ratios), 1.2·tanh-capped, the
+  same number both phones' screens use. ≤16 bridge slots. The sketch's
+  linear per-source phase (k·(f−220)) is a recorded shortcut, not the design.
+- Breath: global breathScale 1 + 0.012·sin(2πt/12 s); section gongs add a
+  20 s ×1.05 swell.
+
+### 16.5 Serving & modes
+
+- Served by the hub as `GET /projection` (same process, laptop or cloud);
+  any browser + projector pointed at the hub URL. DPR capped at 2.
+- Art mode default: no chrome. `h` toggles the tuning panel; NUMBERS toggles
+  a soundcheck overlay (#id, role, W per cell). Tuning defaults come from the
+  sketch once dialed by ear/eye.
+- Wall-clock advance fallback (≤50 ms substeps) so occluded/unfocused tabs
+  keep simulating; rendering rides rAF.
+
+### 16.6 Out of scope for v1
+
+- The v2 telemetry mesh (16.3), audio from the wall (the wall is silent —
+  sound stays in the phones), multi-projector tiling, recording rig.
