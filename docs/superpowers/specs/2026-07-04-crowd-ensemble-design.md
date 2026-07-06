@@ -406,8 +406,8 @@ being live.
    `scale_drift.json` for §13.1)
 2. **Simulate** — `simulator/index.html` with the BLE noise model; compose and tune until
    the piece sounds right *with realistic sensing*; export `params.json`. ✅ core, score,
-   drift, voicing; **remaining: per-agent phone-screen view driving the §14 shader from
-   live state**. *Aesthetic gate: do not proceed until the sim version is good.*
+   drift, voicing, per-agent phone-screen view (§14 shader from live state).
+   *Aesthetic gate: do not proceed until the sim version is good.*
 3. **Hum** — hub server + `HubClient` + `VoiceEngine`: 3 phones play assigned pitches in
    the derived tuning.
 4. **Dance** — `NeighborSensor` + `MotionSensor` + `RewardModel` on device; validate
@@ -426,7 +426,7 @@ visible. Update when a phase lands or an approximation is resolved.)
 | 2 Simulate | ✅ score, drift, voicing, ombak, §14 phone view; 18 tests |
 | 3 Hum | ✅ hub (4 tests) + `NearfieldEnsemble`; hardware-verified 2026-07-05 (iPhone 13 mini joined over tailnet as shimmer 626.1 Hz) |
 | 4 Dance | ✅ code-complete: Swift RewardCore fixture-validated vs the JS core (4 XCTests, §9 contract); NeighborSensor (BLE) + MotionSensor + 5 Hz Conductor driving VoiceEngine; debug injection panel; loop verified live in simulator. **Two-phone BLE field test pending.** Peers' pitches derived locally from participant id (assignment is a pure function of join order) — no roster broadcast needed. |
-| 5 Piece | ▶ in progress: score playback on phones ✅ (ScoreEngine + interpolateScale fixture-validated, 3 XCTests; free-run clock from hub heartbeats; live param patches; drift pitch glides; buka entry stagger; synchronized gong swells; whole-voice envelope); hub dashboard + score transport ✅ (verified end-to-end: START SCORE → sim phone entered buka with telemetry flowing). Remaining: §14 shader main screen, generated-IR reverb, TestFlight distribution. |
+| 5 Piece | ▶ in progress: score playback on phones ✅ (ScoreEngine + interpolateScale fixture-validated, 3 XCTests; free-run clock from hub heartbeats; live param patches; drift pitch glides; buka entry stagger; synchronized gong swells; whole-voice envelope); hub dashboard + score transport ✅ (verified end-to-end: START SCORE → sim phone entered buka with telemetry flowing); §14 shader main screen ✅ (`visual.html` in a WKWebView visual layer, `VisualBridge` push at 5 Hz from the Conductor — same state as the audio; tap toggles the status chrome; per-frame JS smoothing + audible-beat fringe drift per §14.2). Remaining: generated-IR reverb, TestFlight distribution. |
 
 Known approximations (spec says / built does):
 - **§5.5 reverb:** spec: generated-IR convolution on iOS; built: `AVAudioUnitReverb`

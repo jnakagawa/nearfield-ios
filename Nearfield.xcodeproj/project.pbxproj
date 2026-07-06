@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		01EE29B8DC029255D16172AA /* HubClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF1838F63472B1E72809CAFE /* HubClient.swift */; };
+		0A662001B0685923F438492F /* VisualView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D60E2E0802A390019785E4 /* VisualView.swift */; };
 		1A819DD24973581052EA9A0A /* nearfield.html in Resources */ = {isa = PBXBuildFile; fileRef = 37C0646667DDB929D70CAC9E /* nearfield.html */; };
 		20D03E6C27D8CB7E57B60DDE /* EnsembleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F66F23B128DBF0810C896C2B /* EnsembleApp.swift */; };
 		24B8DDAB7F78330BD09FAFED /* params.json in Resources */ = {isa = PBXBuildFile; fileRef = A5F1DBCF3F38C547B1872958 /* params.json */; };
@@ -23,6 +24,7 @@
 		B13395FD9353EF3ECE48A662 /* RewardCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 701A7D8F4D68DE9408ECC25F /* RewardCoreTests.swift */; };
 		B7AA0A8E978CCD55EFDBCAB2 /* NeighborSensor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B2295137A4F55070A3487D /* NeighborSensor.swift */; };
 		C35014CEB786F581D3D24364 /* Conductor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5D31B577D1AD1A9223A5178 /* Conductor.swift */; };
+		D3DDB89ABDD27B9EF104A870 /* visual.html in Resources */ = {isa = PBXBuildFile; fileRef = 2A6CB71613B44B9E10091952 /* visual.html */; };
 		D73294D4989EF604E856C78A /* RewardCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D939F398C6F4A8090D9AD625 /* RewardCore.swift */; };
 		ECC7A8D07D88D08E0FD5483B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 351EE86A84F75CA01247C0F4 /* ContentView.swift */; };
 		F0D799E1763DC2939F74B059 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = D494DDF1E61BEDDAA50273BB /* Config.swift */; };
@@ -41,6 +43,7 @@
 
 /* Begin PBXFileReference section */
 		20CE9C5958840CF971464B6B /* VoiceEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceEngine.swift; sourceTree = "<group>"; };
+		2A6CB71613B44B9E10091952 /* visual.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = visual.html; sourceTree = "<group>"; };
 		351EE86A84F75CA01247C0F4 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		37C0646667DDB929D70CAC9E /* nearfield.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = nearfield.html; sourceTree = "<group>"; };
 		4E78D4EB9B7A0874B969FD79 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -54,6 +57,7 @@
 		A5F1DBCF3F38C547B1872958 /* params.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = params.json; sourceTree = "<group>"; };
 		B0B2295137A4F55070A3487D /* NeighborSensor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NeighborSensor.swift; sourceTree = "<group>"; };
 		B1AFF821975E43488888CD72 /* NearfieldApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearfieldApp.swift; sourceTree = "<group>"; };
+		B1D60E2E0802A390019785E4 /* VisualView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualView.swift; sourceTree = "<group>"; };
 		B5D31B577D1AD1A9223A5178 /* Conductor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Conductor.swift; sourceTree = "<group>"; };
 		BF1838F63472B1E72809CAFE /* HubClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HubClient.swift; sourceTree = "<group>"; };
 		C1E1E5B6F0CC67FC759C3C50 /* scale.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = scale.json; sourceTree = "<group>"; };
@@ -142,6 +146,8 @@
 				B0B2295137A4F55070A3487D /* NeighborSensor.swift */,
 				D939F398C6F4A8090D9AD625 /* RewardCore.swift */,
 				78942A71B0AAFDC762727928 /* ScoreCore.swift */,
+				2A6CB71613B44B9E10091952 /* visual.html */,
+				B1D60E2E0802A390019785E4 /* VisualView.swift */,
 				20CE9C5958840CF971464B6B /* VoiceEngine.swift */,
 			);
 			path = NearfieldEnsemble;
@@ -192,6 +198,7 @@
 			buildConfigurationList = 2129FD68F58C54FDAFCC46A0 /* Build configuration list for PBXNativeTarget "NearfieldEnsemble" */;
 			buildPhases = (
 				06BFA6AC38B668CD50DC96DC /* Sources */,
+				A65B71A5C9D585F6C798A8BA /* Resources */,
 			);
 			buildRules = (
 			);
@@ -269,6 +276,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A65B71A5C9D585F6C798A8BA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D3DDB89ABDD27B9EF104A870 /* visual.html in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -285,6 +300,7 @@
 				B7AA0A8E978CCD55EFDBCAB2 /* NeighborSensor.swift in Sources */,
 				D73294D4989EF604E856C78A /* RewardCore.swift in Sources */,
 				A95B78E3FABDB00E8FF758A8 /* ScoreCore.swift in Sources */,
+				0A662001B0685923F438492F /* VisualView.swift in Sources */,
 				46090974BB312FBDE9F474E9 /* VoiceEngine.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

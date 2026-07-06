@@ -6,9 +6,24 @@ struct ContentView: View {
     @EnvironmentObject var hub: HubClient
     @EnvironmentObject var voice: VoiceEngine
     @EnvironmentObject var conductor: Conductor
+    @StateObject private var visual = VisualBridge()
     @State private var muted = false
+    @State private var chromeVisible = true
 
     var body: some View {
+        ZStack {
+            // §14: the interference topography IS the main screen
+            if case .assigned = hub.state {
+                VisualView(bridge: visual)
+                    .ignoresSafeArea()
+                    .onTapGesture { withAnimation { chromeVisible.toggle() } }
+            }
+            if chromeVisible { chrome }
+        }
+        .onAppear { conductor.visual = visual }
+    }
+
+    private var chrome: some View {
         VStack(spacing: 28) {
             Spacer()
 

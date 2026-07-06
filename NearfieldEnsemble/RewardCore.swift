@@ -196,6 +196,11 @@ final class RewardState {
     /// Score keyframes patch live constants (spec §12.3).
     func updateParams(_ p: Params) { params = p }
 
+    /// Strongest encounter envelopes, for the §14 visual's peer families.
+    func topPeers(_ n: Int) -> [(id: Int, e: Double)] {
+        E.sorted { $0.value > $1.value }.prefix(n).map { ($0.key, $0.value) }
+    }
+
     private var t = 0.0
     private var W = 0.0
     private var E: [Int: Double] = [:]

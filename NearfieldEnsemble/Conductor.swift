@@ -25,6 +25,9 @@ final class Conductor: ObservableObject {
     private var debugSensor: PairSensor?
     private weak var voice: VoiceEngine?
     private weak var hub: HubClient?
+    weak var visual: VisualBridge?
+    private var currentPitch = 220.0
+    private var currentRatios: [Double] = [1, 2.07, 3.2, 4.4]
 
     // score playback (spec §12): free-runs from the last hub heartbeat
     @Published private(set) var scoreLabel: String?
@@ -47,6 +50,9 @@ final class Conductor: ObservableObject {
         scale = a.scale
         if let sc = a.score { scoreEngine = ScoreEngine(score: sc, params: a.params) }
         driftTable = a.scaleDrift
+        currentPitch = a.pitchHz
+        currentRatios = a.scale.spectrum.ratios
+        visual?.initialize(seedString: "\(a.participantId)|\(a.performanceId)|visual")
         reward = RewardState(id: a.participantId, role: a.role, pitchHz: a.pitchHz,
                              params: a.params, scale: a.scale)
         let mult = a.params.drift.roleMultipliers[a.role] ?? 1
@@ -98,6 +104,8 @@ final class Conductor: ObservableObject {
                 let pitch = scale.baseFreqHz * pow(row.stretch, register)
                     * pow(2, row.scaleCents[a.degreeIndex] / 1200)
                 voice?.setTuning(pitchHz: pitch, ratios: row.spectrum.ratios)
+                currentPitch = pitch
+                currentRatios = row.spectrum.ratios
                 // (slew dips shift a few cents under drift; RewardState keeps the
                 // base scale — inside the 60¢ window, acceptable approximation)
             }
@@ -161,6 +169,18 @@ final class Conductor: ObservableObject {
         lastOut = out
         fpCents = fp
         voice?.applyReward(out, extraCents: fp)
+
+        // §14 visual layer: same state that drives the audio
+        if let v = visual {
+            let peers = reward.topPeers(3).map { p -> (id: Int, e: Double, freq: Double) in
+                let freq = peerPitches[p.id]
+                    ?? assignmentFor(index: p.id, scale: scale, params: params).pitchHz
+                return (p.id, p.e, freq)
+            }
+            v.push(pitch: currentPitch, cents: out.detuneCents + fp,
+                   gains: out.partialGains, W: out.W, fpAmp: fingerprintAmp,
+                   breathPhase: breathPhase, ratios: currentRatios, peers: peers)
+        }
 
         tickCount += 1
         if tickCount % 5 == 0 { // 1 Hz telemetry (§6.1)
