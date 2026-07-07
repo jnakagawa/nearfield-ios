@@ -71,6 +71,27 @@ const clients = new Map();   // ws -> participant_id
 const telemetry = new Map(); // participant_id -> latest payload
 let scoreStartedAt = null;   // unix seconds, or null
 
+// shared projection state (hub.py parity): hub is the source of truth
+const PROJECTION_INT = new Set(['mode', 'fold', 'ink']);
+const projection = { mode: 1, fold: 8, density: 1.9, beat_x: 1.0, ink: 1 };
+function setProjection(query) {
+  for (const [k, v] of new URLSearchParams(query)) {
+    if (k in projection && !Number.isNaN(+v)) {
+      projection[k] = PROJECTION_INT.has(k) ? Math.round(+v) : +v;
+    }
+  }
+  return projection;
+}
+function clearOffline() {
+  const online = new Set(clients.values());
+  let removed = 0;
+  for (const [dev, a] of assigner.byDevice) {
+    if (!online.has(a.participant_id)) { assigner.byDevice.delete(dev); removed++; }
+  }
+  for (const pid of [...telemetry.keys()]) if (!online.has(pid)) telemetry.delete(pid);
+  return removed;
+}
+
 function broadcast(payload) {
   const raw = JSON.stringify(payload);
   for (const ws of clients.keys()) {
@@ -110,6 +131,7 @@ function statusJson() {
     performance_id: performanceId,
     score_t: scoreStartedAt === null ? null
       : Math.min(Date.now() / 1000 - scoreStartedAt, score.duration_s),
+    projection,
     participants: joined.map(a => ({
       id: a.participant_id, name: a.name, role: a.role,
       pitch_hz: Math.round(a.pitch_hz * 10) / 10,
@@ -130,6 +152,13 @@ const server = http.createServer((req, res) => {
     startScore();
     res.writeHead(200);
     res.end('score started\n');
+  } else if (p.endsWith('/set-projection')) {
+    const query = req.url.includes('?') ? req.url.split('?', 2)[1] : '';
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(setProjection(query)));
+  } else if (p.endsWith('/clear-roster')) {
+    res.writeHead(200);
+    res.end(`cleared ${clearOffline()} offline participants\n`);
   } else if (p.endsWith('/projection')) {
     // §16 wall view with the score inlined (read per request: dev-friendly)
     const html = fs.readFileSync(path.join(__dirname, 'projection.html'), 'utf8')
@@ -191,16 +220,43 @@ border-radius:999px; padding:8px 22px; letter-spacing:.1em; cursor:pointer; }
 </style></head><body>
 <h1>NEARFIELD <span class="dim">hub</span></h1>
 <p><span id="score" class="dim">score not started</span>
-<button id="startBtn">START SCORE</button></p>
+<button id="startBtn">START SCORE</button>
+<button id="clearBtn" title="drop offline participants from the roster">CLEAR OFFLINE</button></p>
+<p class="dim">projection:
+<button data-pm="1">FIELD</button><button data-pm="2">OP-ART</button><button data-pm="0">CELLS</button>
+<button id="inkBtn">◐ INK</button>
+<a id="projLink" href="#" target="_blank" style="color:#8a8aff">open ↗</a><br>
+<label>fold <input id="pFold" type="range" min="1" max="12" step="1" style="width:90px"></label>
+<label>density <input id="pDens" type="range" min="0" max="3" step="0.05" style="width:90px"></label>
+<label>beat× <input id="pBeat" type="range" min="0" max="2" step="0.05" style="width:90px"></label>
+</p>
 <table id="t"><tr><th>#</th><th>name</th><th>role</th><th>pitch</th><th>W</th><th>B</th></tr></table>
 <script>
 // endpoints resolved relative to wherever the dashboard is served, keeping
 // any proxy path prefix and ?t= access token intact
 const base = location.pathname.endsWith('/') ? location.pathname : location.pathname + '/';
 const ep = name => base + name + location.search;
+const epq = (name, params) => base + name + location.search + (location.search ? '&' : '?') + params;
 document.getElementById('startBtn').onclick = () => fetch(ep('start-score'));
+document.getElementById('clearBtn').onclick = () => fetch(ep('clear-roster'));
+document.getElementById('projLink').href = ep('projection');
+let inkNow = 1;
+for (const b of document.querySelectorAll('button[data-pm]'))
+  b.onclick = () => fetch(epq('set-projection', 'mode=' + b.dataset.pm));
+document.getElementById('inkBtn').onclick = () => fetch(epq('set-projection', 'ink=' + (1 - inkNow)));
+for (const [id, key] of [['pFold','fold'],['pDens','density'],['pBeat','beat_x']])
+  document.getElementById(id).onchange = e => fetch(epq('set-projection', key + '=' + e.target.value));
 setInterval(async () => {
   const s = await (await fetch(ep('status'))).json();
+  if (s.projection) {
+    inkNow = s.projection.ink;
+    for (const [id, key] of [['pFold','fold'],['pDens','density'],['pBeat','beat_x']]) {
+      const el = document.getElementById(id);
+      if (document.activeElement !== el) el.value = s.projection[key];
+    }
+    document.querySelectorAll('button[data-pm]').forEach(b =>
+      b.style.background = +b.dataset.pm === s.projection.mode ? '#5a5aff' : '#1c1c2a');
+  }
   document.getElementById('score').textContent = s.score_t === null ? 'score not started'
     : \`score \${String(Math.floor(s.score_t/60)).padStart(2,'0')}:\${String(Math.floor(s.score_t%60)).padStart(2,'0')} / 16:00\`;
   const rows = s.participants.map(p => {

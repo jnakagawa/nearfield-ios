@@ -38,7 +38,7 @@
   <div>
     <button id="mField">FIELD</button><button id="mOp">OP-ART</button><button id="mCells">CELLS</button>
   </div>
-  <button id="bNums">NUMBERS</button>
+  <button id="bInk">◐ INK</button><button id="bNums">NUMBERS</button>
 </div>
 <script id="projection-core">
 'use strict';
@@ -198,7 +198,19 @@ async function poll(){
     P.perf=s.performance_id;
     P.scoreT=s.score_t;P.scoreAt=performance.now()/1000;
     ingest(s);
+    if(s.projection)applyShared(s.projection); // hub is the source of truth (§16.5)
   }catch(e){statusOk=false;}
+}
+function applyShared(p){
+  mode=p.mode;inkVal=p.ink;
+  for(const[id,key]of[['uFold','fold'],['uDens','density'],['uBeatX','beat_x']]){
+    const el=document.getElementById(id);
+    if(document.activeElement!==el&&+el.value!==p[key]){el.value=p[key];el.oninput&&el.oninput();}
+  }
+}
+function sendShared(params){
+  const u='set-projection'+location.search+(location.search?'&':'?')+params;
+  fetch(new URL(u,location.href)).catch(()=>{});
 }
 setInterval(poll,1000);poll();
 
@@ -235,7 +247,7 @@ gl.getExtension('OES_standard_derivatives');
 const FS=`
 #extension GL_OES_standard_derivatives : enable
 precision highp float;
-uniform vec2 res;uniform float breathScale,rad,densG;uniform int nSrc,nBr,mode,fold;
+uniform vec2 res;uniform float breathScale,rad,densG,ink;uniform int nSrc,nBr,mode,fold;
 uniform vec4 srcA[${MAXS}]; // radial: x, y, lambda, weight | grating: dirx, diry, lambda, weight
 uniform vec2 srcB[${MAXS}]; // phase, densVal
 uniform vec4 brA[${MAXB}];  // ax, ay, bx, by (CELLS mode only)
@@ -280,8 +292,8 @@ void main(){
     g+=corr;
   }
   float dens=mode==0?max(dn/g,0.5):densG;
-  float c=hair(v/g,dens,0.7);
-  gl_FragColor=vec4(vec3(c*smoothstep(0.0,0.02,g)),1.0);
+  float c=hair(v/g,dens,0.7)*smoothstep(0.0,0.02,g);
+  gl_FragColor=vec4(vec3(mix(1.0-c,c,ink)),1.0); // ink 1: white lines on black
 }`;
 function compile(t,src){const s=gl.createShader(t);gl.shaderSource(s,src);gl.compileShader(s);
   if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s;}
@@ -304,13 +316,16 @@ for(const id of['uDrift','uSpring','uRad','uDens','uFold','uBeatX']){
   el.oninput=show;show();
 }
 const uiVal=id=>+document.getElementById(id).value;
-let showNums=false,chromeOn=false;
+let showNums=false,chromeOn=false,inkVal=1;
 let mode=1; // FIELD default (§16.2); all modes are live performance controls
 const MODES=['CELLS','FIELD','OP-ART'];
-document.getElementById('mCells').onclick=()=>mode=0;
-document.getElementById('mField').onclick=()=>mode=1;
-document.getElementById('mOp').onclick=()=>mode=2;
+document.getElementById('mCells').onclick=()=>{mode=0;sendShared('mode=0');};
+document.getElementById('mField').onclick=()=>{mode=1;sendShared('mode=1');};
+document.getElementById('mOp').onclick=()=>{mode=2;sendShared('mode=2');};
+document.getElementById('bInk').onclick=()=>{inkVal=1-inkVal;sendShared('ink='+inkVal);};
 document.getElementById('bNums').onclick=()=>showNums=!showNums;
+for(const[id,key]of[['uFold','fold'],['uDens','density'],['uBeatX','beat_x']])
+  document.getElementById(id).onchange=e=>sendShared(key+'='+e.target.value);
 addEventListener('keydown',e=>{if(e.key==='h'){chromeOn=!chromeOn;
   document.getElementById('bar').classList.toggle('hidden',!chromeOn);
   document.getElementById('panel').classList.toggle('hidden',!chromeOn);}});
@@ -421,6 +436,7 @@ function frame(){
   gl.uniform1f(loc('breathScale'),bs);
   gl.uniform1f(loc('rad'),uiVal('uRad')*(1+1.5*cv));
   gl.uniform1f(loc('densG'),densG);
+  gl.uniform1f(loc('ink'),inkVal);
   gl.uniform1i(loc('mode'),mode);
   gl.uniform1i(loc('fold'),uiVal('uFold'));
   gl.uniform1i(loc('nSrc'),n);

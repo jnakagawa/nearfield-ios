@@ -14,6 +14,7 @@ import asyncio
 import json
 import logging
 import time
+import urllib.parse
 from pathlib import Path
 
 import websockets
@@ -84,6 +85,12 @@ class Assigner:
         return out
 
 
+# §16.2/§16.5: shared projection state — the hub is the source of truth; the
+# dashboard and every open projection edit/follow the same values.
+PROJECTION_DEFAULTS = {"mode": 1, "fold": 8, "density": 1.9, "beat_x": 1.0, "ink": 1}
+PROJECTION_INT_KEYS = {"mode", "fold", "ink"}
+
+
 class Hub:
     def __init__(self, config_dir, performance_id=None):
         self.scale, self.params, self.score, self.drift = load_configs(config_dir)
@@ -92,6 +99,31 @@ class Hub:
         self.clients = {}       # websocket -> participant_id
         self.telemetry = {}     # participant_id -> latest payload
         self.score_started_at = None  # unix time when score started, or None
+        self.projection = dict(PROJECTION_DEFAULTS)
+
+    def set_projection(self, query):
+        """Apply ?k=v pairs to the shared projection state; unknown keys and
+        junk values are ignored (the dashboard is on an open LAN)."""
+        for k, vals in urllib.parse.parse_qs(query).items():
+            if k in self.projection and vals:
+                try:
+                    v = float(vals[0])
+                except ValueError:
+                    continue
+                self.projection[k] = int(v) if k in PROJECTION_INT_KEYS else v
+        return self.projection
+
+    def clear_offline(self):
+        """Drop roster/telemetry rows for participants not currently connected
+        (stale devices, dev leftovers). Connected phones keep their slots; the
+        join counter never rewinds, so future joins still get fresh ids."""
+        online = set(self.clients.values())
+        before = len(self.assigner.by_device)
+        self.assigner.by_device = {
+            d: a for d, a in self.assigner.by_device.items()
+            if a["participant_id"] in online}
+        self.telemetry = {p: t for p, t in self.telemetry.items() if p in online}
+        return before - len(self.assigner.by_device)
 
     # --- protocol (§6.1) -----------------------------------------------------
 
@@ -183,6 +215,7 @@ class Hub:
             "performance_id": self.performance_id,
             "score_t": (min(time.time() - self.score_started_at, self.score["duration_s"])
                         if self.score_started_at is not None else None),
+            "projection": self.projection,
             "participants": [{
                 "id": a["participant_id"], "name": a["name"], "role": a["role"],
                 "pitch_hz": round(a["pitch_hz"], 1),
@@ -213,6 +246,14 @@ class Hub:
         if path.endswith("/start-score"):
             self.start_score()
             return connection.respond(200, "score started\n")
+        if path.endswith("/set-projection"):
+            query = request.path.split("?", 1)[1] if "?" in request.path else ""
+            resp = connection.respond(200, json.dumps(self.set_projection(query)))
+            resp.headers["Content-Type"] = "application/json"
+            return resp
+        if path.endswith("/clear-roster"):
+            removed = self.clear_offline()
+            return connection.respond(200, f"cleared {removed} offline participants\n")
         if path.endswith("/projection"):
             resp = connection.respond(200, self.projection_html())
             resp.headers["Content-Type"] = "text/html"
@@ -237,16 +278,43 @@ border-radius:999px; padding:8px 22px; letter-spacing:.1em; cursor:pointer; }
 </style></head><body>
 <h1>NEARFIELD <span class="dim">hub</span></h1>
 <p><span id="score" class="dim">score not started</span>
-<button id="startBtn">START SCORE</button></p>
+<button id="startBtn">START SCORE</button>
+<button id="clearBtn" title="drop offline participants from the roster">CLEAR OFFLINE</button></p>
+<p class="dim">projection:
+<button data-pm="1">FIELD</button><button data-pm="2">OP-ART</button><button data-pm="0">CELLS</button>
+<button id="inkBtn">◐ INK</button>
+<a id="projLink" href="#" target="_blank" style="color:#8a8aff">open ↗</a><br>
+<label>fold <input id="pFold" type="range" min="1" max="12" step="1" style="width:90px"></label>
+<label>density <input id="pDens" type="range" min="0" max="3" step="0.05" style="width:90px"></label>
+<label>beat× <input id="pBeat" type="range" min="0" max="2" step="0.05" style="width:90px"></label>
+</p>
 <table id="t"><tr><th>#</th><th>name</th><th>role</th><th>pitch</th><th>W</th><th>B</th></tr></table>
 <script>
 // endpoints resolved relative to wherever the dashboard is served, keeping
 // any proxy path prefix and ?t= access token intact
 const base = location.pathname.endsWith('/') ? location.pathname : location.pathname + '/';
 const ep = name => base + name + location.search;
+const epq = (name, params) => base + name + location.search + (location.search ? '&' : '?') + params;
 document.getElementById('startBtn').onclick = () => fetch(ep('start-score'));
+document.getElementById('clearBtn').onclick = () => fetch(ep('clear-roster'));
+document.getElementById('projLink').href = ep('projection');
+let inkNow = 1;
+for (const b of document.querySelectorAll('button[data-pm]'))
+  b.onclick = () => fetch(epq('set-projection', 'mode=' + b.dataset.pm));
+document.getElementById('inkBtn').onclick = () => fetch(epq('set-projection', 'ink=' + (1 - inkNow)));
+for (const [id, key] of [['pFold','fold'],['pDens','density'],['pBeat','beat_x']])
+  document.getElementById(id).onchange = e => fetch(epq('set-projection', key + '=' + e.target.value));
 setInterval(async () => {
   const s = await (await fetch(ep('status'))).json();
+  if (s.projection) {
+    inkNow = s.projection.ink;
+    for (const [id, key] of [['pFold','fold'],['pDens','density'],['pBeat','beat_x']]) {
+      const el = document.getElementById(id);
+      if (document.activeElement !== el) el.value = s.projection[key];
+    }
+    document.querySelectorAll('button[data-pm]').forEach(b =>
+      b.style.background = +b.dataset.pm === s.projection.mode ? '#5a5aff' : '#1c1c2a');
+  }
   document.getElementById('score').textContent = s.score_t === null ? 'score not started'
     : `score ${String(Math.floor(s.score_t/60)).padStart(2,'0')}:${String(Math.floor(s.score_t%60)).padStart(2,'0')} / 16:00`;
   const rows = s.participants.map(p => {

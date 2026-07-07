@@ -104,3 +104,22 @@ def test_projection_endpoint_inlines_score():
     assert 'projection-core' in html
     assert '/*NF_SCORE*/ null' not in html      # token replaced
     assert '"duration_s": 960' in html          # the actual score payload
+
+
+def test_projection_controls_and_clear():
+    hub = Hub(CONFIG_DIR, performance_id=11)
+    assert hub.status_json()["projection"] == {
+        "mode": 1, "fold": 8, "density": 1.9, "beat_x": 1.0, "ink": 1}
+    out = hub.set_projection("mode=2&fold=6&density=1.2&ink=0&bogus=9&fold=junk")
+    assert out == {"mode": 2, "fold": 6, "density": 1.2, "beat_x": 1.0, "ink": 0}
+    assert isinstance(out["mode"], int) and isinstance(out["density"], float)
+
+    a = hub.assigner.assign("dev-a", "A")
+    hub.assigner.assign("dev-b", "B")
+    hub.telemetry = {0: {"W": 1}, 1: {"W": 1}}
+    hub.clients = {object(): a["participant_id"]}  # only A online
+    assert hub.clear_offline() == 1
+    assert list(hub.assigner.by_device) == ["dev-a"]
+    assert list(hub.telemetry) == [0]
+    # cleared devices rejoin with a FRESH id (count never rewinds)
+    assert hub.assigner.assign("dev-b", "B")["participant_id"] == 2
