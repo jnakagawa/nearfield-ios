@@ -99,6 +99,7 @@ class Hub:
         self.clients = {}       # websocket -> participant_id
         self.telemetry = {}     # participant_id -> latest payload
         self.score_started_at = None  # unix time when score started, or None
+        self.stop_requested = False   # STOP SCORE: fulfilled on the next clock beat
         self.projection = dict(PROJECTION_DEFAULTS)
 
     def set_projection(self, query):
@@ -183,7 +184,16 @@ class Hub:
         itself after sitting at the end for SCORE_END_HOLD_S — the final
         converged image lingers, then phones drop back to free hum
         (fingerprints return, master fades back in). Without this, a finished
-        score parks every phone at the final-gong state forever."""
+        score parks every phone at the final-gong state forever. A requested
+        stop broadcasts the same score_stop on the next beat — mid-score
+        abort, same release path."""
+        if self.stop_requested:
+            self.stop_requested = False
+            if self.score_started_at is not None:
+                self.score_started_at = None
+                log.info("score stopped — back to free hum")
+                return {"type": "score_stop"}
+            return None
         if self.score_started_at is None:
             return None
         elapsed = time.time() - self.score_started_at
@@ -204,7 +214,11 @@ class Hub:
 
     def start_score(self):
         self.score_started_at = time.time()
+        self.stop_requested = False
         log.info("score started (performance %s)", self.performance_id)
+
+    def stop_score(self):
+        self.stop_requested = True
 
     # --- dashboard (HTTP on the same port) -------------------------------------
 
@@ -246,6 +260,9 @@ class Hub:
         if path.endswith("/start-score"):
             self.start_score()
             return connection.respond(200, "score started\n")
+        if path.endswith("/stop-score"):
+            self.stop_score()
+            return connection.respond(200, "score stopping\n")
         if path.endswith("/set-projection"):
             query = request.path.split("?", 1)[1] if "?" in request.path else ""
             resp = connection.respond(200, json.dumps(self.set_projection(query)))
@@ -279,6 +296,7 @@ border-radius:999px; padding:8px 22px; letter-spacing:.1em; cursor:pointer; }
 <h1>NEARFIELD <span class="dim">hub</span></h1>
 <p><span id="score" class="dim">score not started</span>
 <button id="startBtn">START SCORE</button>
+<button id="stopBtn">STOP SCORE</button>
 <button id="clearBtn" title="drop offline participants from the roster">CLEAR OFFLINE</button></p>
 <p class="dim">projection:
 <button data-pm="1">FIELD</button><button data-pm="2">OP-ART</button><button data-pm="0">CELLS</button>
@@ -296,6 +314,7 @@ const base = location.pathname.endsWith('/') ? location.pathname : location.path
 const ep = name => base + name + location.search;
 const epq = (name, params) => base + name + location.search + (location.search ? '&' : '?') + params;
 document.getElementById('startBtn').onclick = () => fetch(ep('start-score'));
+document.getElementById('stopBtn').onclick = () => fetch(ep('stop-score'));
 document.getElementById('clearBtn').onclick = () => fetch(ep('clear-roster'));
 document.getElementById('projLink').href = ep('projection');
 let inkNow = 1;

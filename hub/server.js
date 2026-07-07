@@ -70,6 +70,7 @@ const performanceId = Math.floor(Date.now() / 1000);
 const clients = new Map();   // ws -> participant_id
 const telemetry = new Map(); // participant_id -> latest payload
 let scoreStartedAt = null;   // unix seconds, or null
+let stopRequested = false;   // STOP SCORE: fulfilled on the next clock beat
 
 // shared projection state (hub.py parity): hub is the source of truth
 const PROJECTION_INT = new Set(['mode', 'fold', 'ink']);
@@ -102,6 +103,15 @@ function broadcast(payload) {
 // One clock beat — mirrors hub.py score_tick: position while running, one
 // score_stop after sitting at the end for the hold, then silence.
 function scoreTick() {
+  if (stopRequested) {
+    stopRequested = false;
+    if (scoreStartedAt !== null) {
+      scoreStartedAt = null;
+      log('score stopped — back to free hum');
+      return { type: 'score_stop' };
+    }
+    return null;
+  }
   if (scoreStartedAt === null) return null;
   const elapsed = Date.now() / 1000 - scoreStartedAt;
   const duration = score.duration_s;
@@ -120,6 +130,7 @@ setInterval(() => {
 
 function startScore() {
   scoreStartedAt = Date.now() / 1000;
+  stopRequested = false;
   log(`score started (performance ${performanceId})`);
 }
 
@@ -152,6 +163,10 @@ const server = http.createServer((req, res) => {
     startScore();
     res.writeHead(200);
     res.end('score started\n');
+  } else if (p.endsWith('/stop-score')) {
+    stopRequested = true;
+    res.writeHead(200);
+    res.end('score stopping\n');
   } else if (p.endsWith('/set-projection')) {
     const query = req.url.includes('?') ? req.url.split('?', 2)[1] : '';
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -221,6 +236,7 @@ border-radius:999px; padding:8px 22px; letter-spacing:.1em; cursor:pointer; }
 <h1>NEARFIELD <span class="dim">hub</span></h1>
 <p><span id="score" class="dim">score not started</span>
 <button id="startBtn">START SCORE</button>
+<button id="stopBtn">STOP SCORE</button>
 <button id="clearBtn" title="drop offline participants from the roster">CLEAR OFFLINE</button></p>
 <p class="dim">projection:
 <button data-pm="1">FIELD</button><button data-pm="2">OP-ART</button><button data-pm="0">CELLS</button>
@@ -238,6 +254,7 @@ const base = location.pathname.endsWith('/') ? location.pathname : location.path
 const ep = name => base + name + location.search;
 const epq = (name, params) => base + name + location.search + (location.search ? '&' : '?') + params;
 document.getElementById('startBtn').onclick = () => fetch(ep('start-score'));
+document.getElementById('stopBtn').onclick = () => fetch(ep('stop-score'));
 document.getElementById('clearBtn').onclick = () => fetch(ep('clear-roster'));
 document.getElementById('projLink').href = ep('projection');
 let inkNow = 1;

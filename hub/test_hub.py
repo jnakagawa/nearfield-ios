@@ -123,3 +123,15 @@ def test_projection_controls_and_clear():
     assert list(hub.telemetry) == [0]
     # cleared devices rejoin with a FRESH id (count never rewinds)
     assert hub.assigner.assign("dev-b", "B")["participant_id"] == 2
+
+
+def test_stop_score_broadcasts_once_via_tick():
+    hub = Hub(CONFIG_DIR, performance_id=13)
+    hub.stop_score()
+    assert hub.score_tick() is None      # stop while idle: nothing to do
+    hub.start_score()
+    hub.stop_score()
+    msg = hub.score_tick()
+    assert msg == {"type": "score_stop"} # mid-score abort releases the phones
+    assert hub.score_started_at is None
+    assert hub.score_tick() is None      # one stop, one broadcast
