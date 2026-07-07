@@ -32,7 +32,7 @@ targets:
         # v1 duet target moved to com.nearfield.duet.
         PRODUCT_BUNDLE_IDENTIFIER: com.nearfield.app
         MARKETING_VERSION: "0.2.0"
-        CURRENT_PROJECT_VERSION: 2
+        CURRENT_PROJECT_VERSION: 3
         TARGETED_DEVICE_FAMILY: "1"
         SWIFT_VERSION: "5.0"
         ENABLE_PREVIEWS: true
