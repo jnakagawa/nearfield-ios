@@ -24,8 +24,13 @@ struct ContentView: View {
             conductor.visual = visual
             hub.connect() // silent auto-(re)join; hub keys assignments by device_id
         }
-        // root-level so hub switches are seen even while the chrome is hidden
+        // root-level so hub switches are seen even while the chrome is hidden;
+        // performanceId too — a real hub replacing a solo assignment can land
+        // on the same participant index
         .onChange(of: hub.assignment?.participantId) { _ in
+            startVoiceIfAssigned()
+        }
+        .onChange(of: hub.assignment?.performanceId) { _ in
             startVoiceIfAssigned()
         }
     }
@@ -103,8 +108,13 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
                 Text(String(format: "%.1f Hz", a.pitchHz))
                     .font(.system(size: 34, weight: .light, design: .rounded))
-                Text("participant #\(a.participantId) · degree \(a.degreeIndex) · performance \(a.performanceId)")
-                    .font(.footnote).foregroundStyle(.secondary)
+                if hub.soloActive {
+                    Text("solo voice · listening for the ensemble")
+                        .font(.footnote).foregroundStyle(.secondary)
+                } else {
+                    Text("participant #\(a.participantId) · degree \(a.degreeIndex) · performance \(a.performanceId)")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 let o = conductor.lastOut
                 Text(String(format: "W %.2f · B %.2f · %@ · %+.1f¢",
                             o.W, o.B,

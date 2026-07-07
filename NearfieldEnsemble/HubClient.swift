@@ -16,6 +16,8 @@ final class HubClient: NSObject, ObservableObject {
 
     @Published var state: State = .idle
     @Published var assignment: AssignMessage?
+    /// true while humming a self-assigned voice (no hub reached yet)
+    @Published var soloActive = false
     /// last score_position heartbeat: (score seconds, wall time received, ensemble size)
     @Published var scorePosition: (t: Double, at: Date, n: Int)?
     // beta default: the always-on cloud hub; a laptop hub is a paste away
@@ -38,6 +40,23 @@ final class HubClient: NSObject, ObservableObject {
         shouldRun = true
         reconnectDelay = 1
         open()
+        scheduleSoloFallback()
+    }
+
+    // Spec §8: never leave a fresh install silent. If no hub has assigned us
+    // within the grace window, self-assign a bundled voice; the reconnect
+    // loop keeps hunting and a real assignment replaces the solo one.
+    private var soloScheduled = false
+    private func scheduleSoloFallback() {
+        guard !soloScheduled else { return }
+        soloScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + SoloFallback.graceS) { [weak self] in
+            guard let self, self.shouldRun, self.assignment == nil,
+                  let solo = SoloFallback.assignment(deviceId: self.deviceId) else { return }
+            self.soloActive = true
+            self.assignment = solo
+            self.state = .assigned
+        }
     }
 
     func disconnect() {
@@ -56,6 +75,8 @@ final class HubClient: NSObject, ObservableObject {
         task = nil
         assignment = nil
         scorePosition = nil
+        soloActive = false
+        soloScheduled = false // re-arm: the new hub may be unreachable too
         connect()
     }
 
@@ -146,6 +167,7 @@ final class HubClient: NSObject, ObservableObject {
             if let assign = try? JSONDecoder().decode(AssignMessage.self, from: data) {
                 assignment = assign
                 state = .assigned
+                soloActive = false // the ensemble found us
                 reconnectDelay = 1
             }
         case "score_position":
