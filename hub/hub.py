@@ -244,6 +244,28 @@ class Hub:
         html = (Path(__file__).resolve().parent / "projection.html").read_text()
         return html.replace("/*NF_SCORE*/ null", json.dumps(self.score))
 
+    def static_file(self, path):
+        """Serve the composition tool's static assets from the deployed repo:
+        /simulator/* (the audition tool + sketches) and /config/* (the JSON the
+        simulator fetches). Returns (bytes, content_type) or None. Path is
+        constrained to those two directories — no traversal escapes."""
+        segs = [s for s in path.split("/") if s and s != ".."]
+        if not segs or segs[0] not in ("simulator", "config"):
+            return None
+        rel = "/".join(segs[1:]) or "index.html"
+        base = (Path(__file__).resolve().parent.parent / segs[0]).resolve()
+        target = (base / rel).resolve()
+        if base not in target.parents and target != base:
+            return None  # traversal attempt
+        if not target.is_file():
+            return None
+        ctype = {
+            ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript",
+            ".json": "application/json", ".css": "text/css", ".png": "image/png",
+            ".svg": "image/svg+xml",
+        }.get(target.suffix, "application/octet-stream")
+        return target.read_bytes(), ctype
+
     def process_request(self, connection, request):
         """Plain-HTTP endpoints on the WS port: / dashboard, /status,
         /start-score, /projection. Path matching is suffix-based and ignores
@@ -275,6 +297,23 @@ class Hub:
             resp = connection.respond(200, self.projection_html())
             resp.headers["Content-Type"] = "text/html"
             return resp
+        if path == "/simulator" or "/simulator/" in path or "/config/" in path:
+            # normalize to a repo-relative path (drop any proxy prefix)
+            for anchor in ("simulator", "config"):
+                if "/" + anchor in path:
+                    path = path[path.index("/" + anchor):]
+                    break
+            served = self.static_file(path)
+            if served is None:
+                return connection.respond(404, "not found\n")
+            body, ctype = served  # body is bytes — build the Response directly
+            # (connection.respond only accepts str; it .encode()s)
+            from websockets.http11 import Response
+            from websockets.datastructures import Headers
+            return Response(200, "OK", Headers([
+                ("Content-Type", ctype),
+                ("Content-Length", str(len(body))),
+            ]), body)
         resp = connection.respond(200, DASHBOARD_HTML)
         resp.headers["Content-Type"] = "text/html"
         return resp

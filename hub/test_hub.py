@@ -135,3 +135,21 @@ def test_stop_score_broadcasts_once_via_tick():
     assert msg == {"type": "score_stop"} # mid-score abort releases the phones
     assert hub.score_started_at is None
     assert hub.score_tick() is None      # one stop, one broadcast
+
+
+def test_static_file_serves_simulator_and_blocks_traversal():
+    hub = Hub(CONFIG_DIR, performance_id=15)
+    sim = hub.static_file("/simulator/index.html")
+    assert sim is not None and sim[1] == "text/html"
+    assert b"nearfield-core" in sim[0]
+    # bare /simulator -> index.html
+    assert hub.static_file("/simulator") is not None
+    # config json is served for the sim's ../config fetches
+    cfg = hub.static_file("/config/scale.json")
+    assert cfg is not None and cfg[1] == "application/json"
+    assert b"pseudo_octave_ratio" in cfg[0]
+    # traversal + non-allowlisted dirs are refused
+    assert hub.static_file("/simulator/../hub/hub.py") is None
+    assert hub.static_file("/config/../../etc/passwd") is None
+    assert hub.static_file("/hub/hub.py") is None
+    assert hub.static_file("/simulator/nope.html") is None
