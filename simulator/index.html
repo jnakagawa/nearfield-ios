@@ -66,6 +66,30 @@
     border-radius: 999px; font-size: 11px; padding: 1px 8px;
   }
   #phoneCanvas { position: relative; inset: auto; display: block; width: 240px; height: 480px; }
+
+  /* compact player mode: phones (or ?player) get the field + a transport bar,
+     no tuning chrome */
+  #mobilebar { display: none; }
+  body.player #panel { display: none; }
+  body.player #stats { display: none; }
+  body.player header .sub { display: none; }
+  body.player #mobilebar {
+    display: flex; align-items: center; gap: 12px;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 7;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+    background: rgba(20,20,26,0.92); border-top: 1px solid #26262e;
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  }
+  #mobilebar button {
+    flex: 0 0 auto; background: #1c1c2a; border: 1px solid #5a5aff; color: #fff;
+    border-radius: 999px; width: 48px; height: 48px; font-size: 15px; padding: 0;
+  }
+  #mobilebar #mPlay { width: 60px; height: 60px; font-size: 20px; }
+  #mobilebar #mScrub { flex: 1; min-width: 0; accent-color: #6a6aff; height: 34px; }
+  #mobilebar #mPos {
+    flex: 0 0 auto; width: 44px; text-align: right;
+    font-variant-numeric: tabular-nums; color: #b8b8c2; font-size: 13px;
+  }
 </style>
 </head>
 <body>
@@ -93,6 +117,12 @@
     </div>
   </div>
   <div id="panel"></div>
+</div>
+<div id="mobilebar">
+  <button id="mRestart" aria-label="restart">⏮</button>
+  <button id="mPlay" aria-label="play/pause">▶</button>
+  <input id="mScrub" type="range" min="0" max="960" step="5" value="0" aria-label="scrub">
+  <span id="mPos">0:00</span>
 </div>
 
 <script id="nearfield-core">
@@ -1606,7 +1636,43 @@ function updateStats(force) {
   if (posOut) posOut.value = sim.scoreOn && sim.scoreNow ? `${sim.scoreNow.label} · ${mmss(sim.scoreT)}` : mmss(sim.scoreT);
   const scrub = document.getElementById('scoreScrub');
   if (scrub && sim.scoreOn) scrub.value = sim.scoreT;
+  // compact player bar (mobile) mirrors the same score state
+  const mPlay = document.getElementById('mPlay');
+  if (mPlay) {
+    mPlay.textContent = sim.scoreOn ? '❚❚' : '▶';
+    const mScrub = document.getElementById('mScrub');
+    if (mScrub) {
+      if (+mScrub.max !== sim.scoreData.duration_s) mScrub.max = sim.scoreData.duration_s;
+      if (sim.scoreOn && document.activeElement !== mScrub) mScrub.value = sim.scoreT;
+    }
+    document.getElementById('mPos').textContent = mmss(sim.scoreT);
+  }
 }
+
+// --- compact player mode (phones / ?player): field + transport, no chrome ----
+(function wirePlayer() {
+  const q = new URLSearchParams(location.search);
+  const forced = q.has('player');   // force player mode on any screen
+  const tune = q.has('tune');       // escape hatch: force the full panel
+  // auto player on real touch phones (narrow, or coarse pointer w/o a mouse) —
+  // not on desktop touchscreens (they have hover)
+  const mq = matchMedia('(max-width: 820px), (pointer: coarse) and (hover: none)');
+  const apply = () => document.body.classList.toggle('player', !tune && (forced || mq.matches));
+  mq.addEventListener('change', apply);
+  apply();
+  const scrub = document.getElementById('mScrub');
+  document.getElementById('mRestart').onclick = () => {
+    sim.scoreT = 0; sim.score && sim.score.seek(0); scrub.value = 0;
+  };
+  document.getElementById('mPlay').onclick = () => {
+    sim.scoreOn = !sim.scoreOn;
+    if (sim.scoreOn && sim.score) sim.score.seek(sim.scoreT);
+  };
+  scrub.oninput = () => {
+    sim.scoreT = parseFloat(scrub.value);
+    if (sim.score) sim.score.seek(sim.scoreT);
+  };
+})();
 
 // --- boot -------------------------------------------------------------------------
 
