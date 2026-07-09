@@ -5,304 +5,340 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Nearfield — how it works</title>
 <meta property="og:title" content="Nearfield — how it works">
-<meta property="og:description" content="Two waves, a beat, and a room full of phones. A short scroll through how Nearfield works.">
+<meta property="og:description" content="Two waves, a beat, and a room full of phones. Scroll to see how Nearfield works.">
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; margin: 0; }
-  html { scroll-behavior: smooth; }
-  body { background: #000; color: #e8e8ee;
-         font: 17px/1.6 -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  body { background: #060608; color: #e8e8ee;
+         font: 17px/1.62 -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
          -webkit-font-smoothing: antialiased; }
-  /* the field: one fixed canvas behind everything, driven by scroll */
-  #gl { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; display: block; }
-  main { position: relative; z-index: 1; }
-  .scene { min-height: 100vh; display: flex; align-items: center;
-           padding: 14vh 7vw; }
-  .scene.right { justify-content: flex-end; }
-  .scene.center { justify-content: center; text-align: center; }
-  .panel { max-width: 30rem; }
-  .scene.center .panel { max-width: 34rem; }
-  /* legibility scrim: a soft dark wash directly behind the text block */
-  .panel > * { text-shadow: 0 0 22px #000, 0 0 8px #000, 0 1px 2px #000; }
-  h1 { font-size: clamp(30px, 8vw, 60px); font-weight: 600; letter-spacing: 0.14em; }
-  h2 { font-size: clamp(20px, 5vw, 30px); font-weight: 600; letter-spacing: 0.02em;
-       margin-bottom: 0.7em; }
-  p { margin: 0.9em 0; color: #d3d3dc; }
+  /* sticky graphic: the waveform scope, pinned; text steps scroll over it */
+  .scrolly { position: relative; }
+  .graphic { position: sticky; top: 0; height: 100vh; z-index: 0; }
+  #scope { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .steps { position: relative; z-index: 1; margin-top: -100vh; }
+  .step { min-height: 96vh; display: flex; align-items: center; padding: 6vh 6vw; }
+  .step.end { min-height: 60vh; }
+  /* on wide screens the text sits in a column on the left; the scope shows to the right */
+  @media (min-width: 780px) { .step { padding-left: 8vw; } .card { margin-left: 0; } }
+  .card { max-width: 27rem; padding: 22px 26px;
+          background: rgba(6,6,9,0.82); backdrop-filter: blur(7px);
+          -webkit-backdrop-filter: blur(7px);
+          border: 1px solid #23232c; border-radius: 16px; }
+  h1 { font-size: clamp(28px, 7vw, 52px); font-weight: 600; letter-spacing: 0.12em; }
+  h2 { font-size: clamp(19px, 4.4vw, 27px); font-weight: 600; margin-bottom: 0.55em; }
+  p { margin: 0.7em 0; color: #cfcfd8; }
   .dim { color: #9a9aa6; }
-  .sub { color: #9a9aa6; font-size: 15px; letter-spacing: 0.16em; margin-top: 6px; }
-  .read { margin-top: 1.4em; font-variant-numeric: tabular-nums; color: #fff;
-          letter-spacing: 0.02em; font-size: 15px; }
-  .read b { font-weight: 600; }
-  ul.layers { list-style: none; padding: 0; margin: 1.1em 0; }
-  ul.layers li { margin: 0.7em 0; }
+  .sub { color: #9a9aa6; font-size: 14px; letter-spacing: 0.18em; margin-top: 8px; }
+  .read { margin-top: 1.1em; font-variant-numeric: tabular-nums; color: #fff;
+          letter-spacing: 0.01em; font-size: 15px; }
+  .read b { font-weight: 600; color: #9ec2ff; }
+  ul.layers { list-style: none; padding: 0; margin: 0.9em 0 0.3em; }
+  ul.layers li { margin: 0.55em 0; }
   ul.layers .name { color: #fff; font-weight: 600; }
-  ul.layers .gloss { color: #8a8a96; font-size: 14px; }
-  .hint { color: #7a7a86; font-size: 13px; letter-spacing: 0.2em; margin-top: 8vh; }
-  a.btn { display: inline-block; margin: 6px 10px 0 0; padding: 11px 22px;
+  ul.layers .gloss { color: #7f7f8b; font-size: 13.5px; }
+  .hint { color: #6f6f7b; font-size: 12px; letter-spacing: 0.22em; margin-top: 1.6em; }
+  a.btn { display: inline-block; margin: 8px 10px 0 0; padding: 11px 22px;
           border: 1px solid #d8d8de; border-radius: 999px; color: #fff;
-          text-decoration: none; letter-spacing: 0.14em; font-size: 13px; background: #000a; }
+          text-decoration: none; letter-spacing: 0.12em; font-size: 13px; }
   a.btn.ghost { border-color: #3a3a44; color: #9a9aa6; }
-  .actions { margin-top: 1.6em; }
-  button.hear { margin-top: 1.2em; padding: 8px 16px; border-radius: 999px;
-                background: #12121a; border: 1px solid #4a4aff; color: #cfcfff;
-                letter-spacing: 0.1em; font-size: 13px; cursor: pointer; }
-  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  button.hear { margin-top: 1em; padding: 8px 15px; border-radius: 999px;
+                background: #10101a; border: 1px solid #4a4aff; color: #b9b9ff;
+                letter-spacing: 0.08em; font-size: 13px; cursor: pointer; }
 </style>
 </head>
 <body>
-<canvas id="gl"></canvas>
-<main>
-  <section class="scene center" data-scene="0">
-    <div class="panel">
-      <h1>NEARFIELD</h1>
-      <div class="sub">A PIECE FOR MANY PHONES</div>
-      <p style="margin-top:1.6em">Every phone plays one tone. Together they make one
-      field of sound. Here's how it works.</p>
-      <div class="hint">SCROLL ↓</div>
-    </div>
-  </section>
-
-  <section class="scene" data-scene="1">
-    <div class="panel">
-      <h2>Two waves</h2>
-      <p>Every tone is a wave — the air pushing and pulling, fast. Play two tones at
-      once and the waves <b>add together</b>: where two pushes line up it gets louder,
-      where a push meets a pull they cancel.</p>
-      <p>If the two tones are a little different, that lineup keeps drifting — in, out,
-      in, out — so the sound swells and fades. That swell-and-fade is the <b>beat</b>.</p>
-      <div class="read" id="readout">the pulse: <b>—</b></div>
-      <button class="hear" id="hearBtn">♪ hear it</button>
-    </div>
-  </section>
-
-  <section class="scene right" data-scene="2">
-    <div class="panel">
-      <h2>In tune, out of tune</h2>
-      <p>Bring the two tones together and the drift slows — right as they match, it
-      stops. Perfectly smooth. That's what <b>in tune</b> means.</p>
-      <p>Pull them apart and the pulse speeds up, into a buzz, until your ear hears two
-      separate notes again.</p>
-      <p class="dim">In the piece, two people coming close is two tones sliding toward
-      that still, in-tune point.</p>
-    </div>
-  </section>
-
-  <section class="scene" data-scene="3">
-    <div class="panel">
-      <h2>The layers</h2>
-      <p>Nearfield isn't a melody with backing. It's a few kinds of tone stacked
-      together — the way a gamelan is built.</p>
-      <ul class="layers">
-        <li><span class="name">the pulse</span> — low and slow, marking time
-          <span class="gloss">· the gongs</span></li>
-        <li><span class="name">the bones</span> — the tone at the center of it all
-          <span class="gloss">· balungan</span></li>
-        <li><span class="name">the ornament</span> — high and fine, only when you move
-          <span class="gloss">· the elaboration</span></li>
-        <li><span class="name">the conductor</span> — silent, keeping the cycle
-          <span class="gloss">· kendhang</span></li>
-      </ul>
-      <p>Every phone is one voice in one of these layers. The music is where they
-      overlap.</p>
-    </div>
-  </section>
-
-  <section class="scene right" data-scene="4">
-    <div class="panel">
-      <h2>The cycle</h2>
-      <p>The piece moves in cycles inside cycles, each closed by a low gong. Between
-      them it breathes — thickening with fine detail, then thinning back out.</p>
-      <p class="dim">Over sixteen minutes it swells from a bare opening to a dense,
-      shimmering middle, and settles again.</p>
-    </div>
-  </section>
-
-  <section class="scene center" data-scene="5">
-    <div class="panel">
-      <h2>One point</h2>
-      <p>At the last gong, every wave in the room lines up on the same point — hundreds
-      of phones, one field.</p>
-      <p>Your screen shows your corner of it. Together, you are the field.</p>
-      <div class="actions">
-        <a class="btn" href="/simulator/?player">hear it</a>
-        <a class="btn ghost" href="/projection">see it</a>
+<div class="scrolly">
+  <div class="graphic"><canvas id="scope"></canvas></div>
+  <div class="steps">
+    <section class="step" data-i="0">
+      <div class="card">
+        <h1>NEARFIELD</h1>
+        <div class="sub">HOW IT WORKS</div>
+        <p style="margin-top:1.3em">A piece for a room full of phones — each playing
+        one tone. Scroll to see how it works.</p>
+        <div class="hint">SCROLL ↓</div>
       </div>
-    </div>
-  </section>
-</main>
+    </section>
+
+    <section class="step" data-i="1">
+      <div class="card">
+        <h2>A tone is a wave</h2>
+        <p>A sound is just air moving out and back, fast and steady. Drawn along time,
+        it's a wave — rising and falling over and over.</p>
+      </div>
+    </section>
+
+    <section class="step" data-i="2">
+      <div class="card">
+        <h2>Two tones, two waves</h2>
+        <p>Play two tones at once and you have two waves running side by side. Right now
+        they're the same, moving together.</p>
+      </div>
+    </section>
+
+    <section class="step" data-i="3">
+      <div class="card">
+        <h2>They add up</h2>
+        <p>Your ear hears the two waves <b>added together</b>. Where two peaks meet, the
+        sound is louder. Where a peak lands on a dip, they cancel.</p>
+        <p class="dim">Keep scrolling — watch them slide from lined-up (loud) to
+        opposite (silent) and back.</p>
+      </div>
+    </section>
+
+    <section class="step" data-i="4">
+      <div class="card">
+        <h2>The beat</h2>
+        <p>Now make the two tones a little different. The lineup keeps drifting on its
+        own — so the combined wave swells and fades, over and over.</p>
+        <p>That slow swell-and-fade is the <b>beat</b>.</p>
+        <div class="read" id="readout">the beat: <b>—</b></div>
+        <button class="hear" id="hearBtn">♪ hear it</button>
+      </div>
+    </section>
+
+    <section class="step" data-i="5">
+      <div class="card">
+        <h2>In tune, out of tune</h2>
+        <p>Bring the two tones together and the beat slows — right as they match, it
+        stops. Perfectly smooth. That's <b>in tune</b>.</p>
+        <p>Pull them apart and it speeds into a buzz, until your ear hears two separate
+        notes again.</p>
+        <p class="dim">In the piece, two people coming close is two tones sliding toward
+        that still, in-tune point.</p>
+      </div>
+    </section>
+
+    <section class="step" data-i="6">
+      <div class="card">
+        <h2>The layers</h2>
+        <p>Nearfield stacks a few kinds of tone together — high and low, fast and slow —
+        the way a gamelan is built:</p>
+        <ul class="layers">
+          <li><span class="name">the pulse</span> — low and slow, marking time
+            <span class="gloss">· the gongs</span></li>
+          <li><span class="name">the bones</span> — the tone at the center
+            <span class="gloss">· balungan</span></li>
+          <li><span class="name">the ornament</span> — high and fine, only when you move
+            <span class="gloss">· the elaboration</span></li>
+          <li><span class="name">the conductor</span> — silent, keeping the cycle
+            <span class="gloss">· kendhang</span></li>
+        </ul>
+        <p>Every phone is one voice in one of these layers.</p>
+      </div>
+    </section>
+
+    <section class="step end" data-i="7">
+      <div class="card">
+        <h2>One field</h2>
+        <p>A whole room of these waves, crossing in the air — loud where they agree,
+        quiet where they cancel. The music happens between the phones.</p>
+        <p>Your screen shows your corner of it. Together, you are the field.</p>
+        <div style="margin-top:1.3em">
+          <a class="btn" href="/simulator/?player">hear it</a>
+          <a class="btn ghost" href="/projection">see it</a>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
 
 <script>
 'use strict';
-// Scroll-driven interference field (spec §16 hairline language). One fixed canvas;
-// scroll progress p∈[0,1] drives the field through the story. No audio required;
-// an optional quiet two-tone beat lives on scene 2.
+// Scroll-driven waveform scope. Scroll progress p∈[0,1] drives literal sine-wave
+// diagrams: two tones that slide into and out of phase (add / cancel), their sum,
+// and the beat when they detune. Clean 2D drawing on a near-black ground.
 
 const clamp = (x, a, b) => Math.min(Math.max(x, a), b);
 const lerp = (a, b, t) => a + (b - a) * t;
 const smooth = t => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
-// progress within [a,b] → 0..1
-const seg = (p, a, b) => smooth((p - a) / (b - a));
+const seg = (p, a, b) => smooth((p - a) / (b - a));   // progress within [a,b] → 0..1
 
-// ---- WebGL ----------------------------------------------------------------------
-const canvas = document.getElementById('gl');
-const gl = canvas.getContext('webgl', { antialias: true });
-gl.getExtension('OES_standard_derivatives');
-const MAX = 8;
-const FS = `
-#extension GL_OES_standard_derivatives : enable
-precision highp float;
-uniform vec2 res; uniform float ink, density, breath;
-uniform int nSrc;
-uniform vec4 src[${MAX}];   // x, y, lambda, weight
-uniform float phase[${MAX}];
-float hair(float v, float n, float w){
-  float q = v*n; float d = abs(fract(q)-0.5)/(fwidth(q)+1e-5);
-  return 1.0 - smoothstep(w, w+1.0, d);
-}
-void main(){
-  vec2 uv = (gl_FragCoord.xy - 0.5*res)/min(res.x,res.y);
-  uv *= breath;
-  float v = 0.0, g = 1e-4;
-  for(int k=0;k<${MAX};k++){
-    if(k>=nSrc) break;
-    float r = length(uv - src[k].xy);
-    v += src[k].w * cos(6.2831853 * r / src[k].z + phase[k]);
-    g += src[k].w;
-  }
-  float c = hair(v/g, density, 0.75);
-  float lum = mix(1.0-c, c, ink);
-  gl_FragColor = vec4(vec3(lum), 1.0);
-}`;
-function sh(t, s){ const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o);
-  if(!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; }
-const prog = gl.createProgram();
-gl.attachShader(prog, sh(gl.VERTEX_SHADER, 'attribute vec2 p; void main(){ gl_Position=vec4(p,0.,1.); }'));
-gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
-gl.linkProgram(prog);
-const quad = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, quad);
-gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
-function resize(){ const d = Math.min(devicePixelRatio || 1, 2);
-  canvas.width = innerWidth * d; canvas.height = innerHeight * d; }
+const cv = document.getElementById('scope');
+const g = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+function resize(){ DPR = Math.min(devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight; cv.width = W * DPR; cv.height = H * DPR;
+  g.setTransform(DPR, 0, 0, DPR, 0, 0); }
 addEventListener('resize', resize); resize();
 
-// ---- the director: scroll progress p → field state ------------------------------
-// Roles: 0 voice-A, 1 voice-B (the beat pair), 2 anchor (low/long), 3 shimmer
-// (high/short), 4-5 ring sources for the cycle scene. Weights fade per scene.
-const LAM_VOICE = 0.30, LAM_ANCHOR = 0.52, LAM_SHIMMER = 0.13;
-let beatPhase = 0;
+const INK = '#f4f4f8', TONE_A = '#f4f4f8', TONE_B = '#7fb2ff', SUM = '#ffffff';
+const LABEL = '#7a7a86';
 
-function field(p, dt, t){
-  // --- semantic drivers, continuous in p ---
-  // separation of the beat pair: wide in the hero, closes into scene 1
-  const sep = lerp(1.35, 0.5, seg(p, 0.0, 0.16));
-  // detune (scene 2 → "into tune"): +D → 0 (unison) → −D across the scene
-  const d3 = seg(p, 0.30, 0.52);
-  const detune = 0.16 * (1 - 2 * d3) * seg(p, 0.28, 0.34); // only active in-scene
-  // beat rate you SEE (fringe crawl): a gentle base in scene 1, then ∝ |detune|
-  const inS1 = seg(p, 0.14, 0.30) * (1 - seg(p, 0.30, 0.40));
-  const beatHz = 0.28 * inS1 + 2.6 * Math.abs(detune);
-  beatPhase += 2 * Math.PI * beatHz * dt;
-  // layers fade in (scene 3)
-  const wAnchor  = seg(p, 0.50, 0.60);
-  const wShimmer = seg(p, 0.58, 0.70);
-  // ring + density (scene 4) and convergence (scene 5)
-  const ring = seg(p, 0.72, 0.84);
-  const dens = seg(p, 0.74, 0.86) * (1 - seg(p, 0.88, 0.94));
-  const cv = seg(p, 0.90, 0.985);
-
-  const S = [];
-  const push = (x, y, lam, w, ph) => S.push({ x, y, lam, w, ph });
-  const shrink = 1 - 0.97 * cv;                 // final-gong convergence
-  // voice pair
-  push(-sep * shrink, 0.0 * shrink, LAM_VOICE, 1.0, 0);
-  push( sep * shrink, 0.0 * shrink, LAM_VOICE * (1 + detune), 1.0, beatPhase);
-  // anchor — low, long waves, off the bottom
-  push(0.0 * shrink, -0.95 * shrink, LAM_ANCHOR, wAnchor, 0.4 * Math.sin(t * 0.05));
-  // shimmer — high, fine, upper right
-  push(0.75 * shrink, 0.7 * shrink, LAM_SHIMMER, wShimmer * 0.8, t * 0.06);
-  // ring sources for the cycle scene (fade with `ring`)
-  for (let i = 0; i < 2; i++){
-    const a = t * 0.03 + i * Math.PI + p * 6.28;
-    const rad = lerp(1.4, 0.9, ring);
-    push(Math.cos(a) * rad * shrink, Math.sin(a) * rad * shrink,
-         LAM_VOICE * (1.4 - 0.4 * i), ring * 0.7, i * 1.3);
-  }
-  return {
-    src: S,
-    density: 2.0 + 2.4 * dens + 2.0 * cv,
-    breath: 1 + 0.015 * Math.sin(t * 0.4),
-    beatHz,
-    readout: beatHz > 0.02
-      ? `<b>${(beatHz).toFixed(1)}</b> pulses per second`
-      : `<b>none</b> — the tones match`,
-  };
+// where the waves live: to the RIGHT of the text column on wide screens, centered
+// on narrow ones — so text is never behind the busy part
+function plotBox(){
+  const wide = W >= 780;
+  const x0 = wide ? W * 0.40 : W * 0.08;
+  const x1 = W * 0.94;
+  return { x0, x1, w: x1 - x0 };
 }
 
-// ---- render loop (scroll → p, smoothed; wall-clock so it survives throttling) ---
+// draw one sine across the plot box at vertical center cy
+function drawWave(cy, amp, cycles, phase, color, width, alpha){
+  const B = plotBox();
+  g.beginPath();
+  const N = 240;
+  for (let i = 0; i <= N; i++){
+    const x = B.x0 + (i / N) * B.w;
+    const y = cy - amp * Math.sin((i / N) * cycles * 2 * Math.PI + phase);
+    i === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
+  }
+  g.globalAlpha = alpha == null ? 1 : alpha;
+  g.strokeStyle = color; g.lineWidth = width; g.lineJoin = 'round';
+  g.stroke();
+  g.globalAlpha = 1;
+}
+// draw the sum of two sines (sampled), plus optional envelope
+function drawSum(cy, amp, cyc, phaseA, cycB, phaseB, color, width, envelope){
+  const B = plotBox();
+  const N = 300;
+  if (envelope){
+    for (const s of [1, -1]){
+      g.beginPath();
+      for (let i = 0; i <= N; i++){
+        const x = B.x0 + (i / N) * B.w, u = i / N;
+        const env = Math.abs(Math.cos(Math.PI * (cycB - cyc) * u + (phaseB - phaseA) / 2));
+        const y = cy - s * amp * 2 * env;
+        i === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
+      }
+      g.strokeStyle = 'rgba(127,178,255,0.5)'; g.lineWidth = 1; g.setLineDash([4, 5]);
+      g.stroke(); g.setLineDash([]);
+    }
+  }
+  g.beginPath();
+  for (let i = 0; i <= N; i++){
+    const x = B.x0 + (i / N) * B.w, u = i / N;
+    const a = Math.sin(u * cyc * 2 * Math.PI + phaseA);
+    const b = Math.sin(u * cycB * 2 * Math.PI + phaseB);
+    const y = cy - amp * (a + b);
+    i === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
+  }
+  g.strokeStyle = color; g.lineWidth = width; g.lineJoin = 'round'; g.stroke();
+}
+function label(text, cy, color){
+  const B = plotBox();
+  g.fillStyle = color || LABEL; g.font = `500 13px -apple-system, sans-serif`;
+  g.textBaseline = 'middle';
+  g.fillText(text, B.x0, cy);
+}
+
+// ---- the director: p (+ time) → what to draw ------------------------------------
+const CYC = 7;               // base cycles across the plot
+let driftPhase = 0;          // time-based drift for the beat scenes
+
+function render(p, dt, t){
+  g.clearRect(0, 0, W, H);
+  const B = plotBox();
+  const amp = Math.min(H * 0.075, 64);
+  const y1 = H * 0.30, y2 = H * 0.50, ySum = H * 0.74;
+
+  // scene weights
+  const one   = seg(p, 0.08, 0.18) * (1 - seg(p, 0.24, 0.30));       // single wave
+  const two   = seg(p, 0.24, 0.32);                                  // second wave in
+  const add   = seg(p, 0.38, 0.46);                                  // sum appears
+  const addPh = seg(p, 0.40, 0.60);                                  // scroll slides phase 0→2π
+  const beatOn = seg(p, 0.54, 0.64);                                 // detune the pair
+  const tuneP = seg(p, 0.66, 0.82);                                  // in-tune slider
+  const layers = seg(p, 0.82, 0.92);                                 // stacked registers
+  const fieldC = seg(p, 0.92, 1.0);                                  // many waves
+
+  // relative phase & detune
+  const scrollPhase = addPh * Math.PI * 2;                           // add-up: scroll = align→cancel→align
+  // detune (extra cycles on B): grows in the beat scene, then slides across in-tune
+  const detune = 1.4 * beatOn * (1 - tuneP) + 2.8 * tuneP;
+  const cycB = CYC + detune;
+  // time drift so the beat visibly crawls; rate ∝ detune (and a hair in add-up)
+  driftPhase += dt * (0.6 * add * (1 - beatOn) + 2.2 * detune);
+  const phaseA = 0.0;
+  const phaseB = scrollPhase + driftPhase;
+
+  if (layers < 0.02 && fieldC < 0.02){
+    // --- waves scenes: A, B, and their sum ---
+    if (two > 0.01 || one > 0.01){
+      drawWave(y1, amp, CYC, phaseA, TONE_A, 2, 1);
+      label('tone A', y1 - amp - 16, LABEL);
+    }
+    if (two > 0.01){
+      drawWave(y2, amp, cycB, phaseB, TONE_B, 2, two);
+      label('tone B', y2 - amp - 16, 'rgba(127,178,255,0.8)');
+    }
+    if (add > 0.01){
+      drawSum(ySum, amp, CYC, phaseA, cycB, phaseB, SUM, 2.4, beatOn > 0.05);
+      label('A + B  (what you hear)', ySum - amp * 2 - 16, '#cfd8ff');
+    }
+  } else {
+    // --- layers: a few sines at different registers, stacked ---
+    const regs = [
+      { y: H * 0.24, cyc: 3.2, amp: amp * 1.25, w: layers, name: 'the pulse' },
+      { y: H * 0.42, cyc: 6.5, amp: amp * 1.0,  w: seg(p,0.84,0.92), name: 'the bones' },
+      { y: H * 0.60, cyc: 13,  amp: amp * 0.7,  w: seg(p,0.86,0.93), name: 'the ornament' },
+    ];
+    for (const r of regs){
+      drawWave(r.y, r.amp, r.cyc, driftPhase * 0.3 + r.cyc, TONE_A, 1.8, r.w);
+      label(r.name, r.y - r.amp - 15, LABEL);
+    }
+    if (fieldC > 0.02){
+      // hint of the ensemble: many faint waves overlapping into one band
+      for (let k = 0; k < 6; k++){
+        drawWave(H * 0.5, amp * (0.5 + 0.12 * k), 4 + k * 3.3,
+                 driftPhase * 0.2 + k, INK, 1, fieldC * 0.35);
+      }
+    }
+  }
+
+  // readout for the beat scene (query fresh + guard — robust to load order)
+  const rEl = document.getElementById('readout');
+  if (rEl){
+    const bh = 2.2 * detune;   // "beats per second" proxy, kept friendly
+    rEl.innerHTML = beatOn > 0.05
+      ? (detune < 0.06 ? 'the beat: <b>none</b> — the tones match'
+                       : `the beat: <b>${bh.toFixed(1)}</b> per second`)
+      : 'the beat: <b>—</b>';
+  }
+  syncBeatAudio(2.2 * detune);
+}
+
+// ---- scroll → p (smoothed), rAF loop with wall-clock dt --------------------------
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 let pView = 0, lastT = null, autoP = 0;
-const loc = n => gl.getUniformLocation(prog, n);
-const readoutEl = document.getElementById('readout');
-
-function scrollP(){
-  const h = document.body.scrollHeight - innerHeight;
-  return h > 0 ? clamp(scrollY / h, 0, 1) : 0;
+function scrollP(){ const h = document.body.scrollHeight - innerHeight;
+  return h > 0 ? clamp(scrollY / h, 0, 1) : 0; }
+function step(dt, t){
+  let target = scrollP();
+  if (reduced) { autoP = (autoP + dt / 55) % 1; target = autoP; }
+  pView += (target - pView) * (1 - Math.exp(-dt / 0.16));
+  if (typeof window.__fp === 'number') pView = window.__fp; // test hook
+  render(pView, dt, t);
 }
 function frame(ms){
   requestAnimationFrame(frame);
-  const t = ms / 1000;
-  const dt = lastT === null ? 0.016 : Math.min(t - lastT, 0.05);
-  lastT = t;
-  // reduced motion: gently auto-advance instead of reacting to scroll
-  let target = scrollP();
-  if (reduced) { autoP = (autoP + dt / 60) % 1; target = autoP; }
-  pView += (target - pView) * (1 - Math.exp(-dt / 0.18));   // eased scrub
-
-  const f = field(pView, dt, t);
-  const A = new Float32Array(MAX * 4), P = new Float32Array(MAX);
-  const n = Math.min(f.src.length, MAX);
-  for (let k = 0; k < n; k++){
-    A[k*4] = f.src[k].x; A[k*4+1] = f.src[k].y; A[k*4+2] = f.src[k].lam;
-    A[k*4+3] = f.src[k].w; P[k] = f.src[k].ph;
-  }
-  gl.viewport(0, 0, canvas.width, canvas.height);
-  gl.useProgram(prog);
-  gl.uniform2f(loc('res'), canvas.width, canvas.height);
-  gl.uniform1f(loc('ink'), 1);
-  gl.uniform1f(loc('density'), f.density);
-  gl.uniform1f(loc('breath'), f.breath);
-  gl.uniform1i(loc('nSrc'), n);
-  gl.uniform4fv(loc('src'), A);
-  gl.uniform1fv(loc('phase'), P);
-  const pa = gl.getAttribLocation(prog, 'p');
-  gl.bindBuffer(gl.ARRAY_BUFFER, quad);
-  gl.enableVertexAttribArray(pa);
-  gl.vertexAttribPointer(pa, 2, gl.FLOAT, false, 0, 0);
-  gl.drawArrays(gl.TRIANGLES, 0, 3);
-
-  if (readoutEl) readoutEl.innerHTML = 'the pulse: ' + f.readout;
-  syncBeatAudio(f.beatHz);
+  const t = ms / 1000, dt = lastT === null ? 0.016 : Math.min(t - lastT, 0.05); lastT = t;
+  step(dt, t);
 }
 requestAnimationFrame(frame);
+// wall-clock fallback: keep advancing if rAF is throttled (backgrounded tab)
+setInterval(() => { const t = performance.now() / 1000;
+  if (lastT === null || t - lastT > 0.35) { const dt = Math.min(t - (lastT ?? t), 0.2);
+    lastT = t; step(dt, t); } }, 250);
 
-// ---- optional "hear the beat": two quiet sines, tap-gated (scene 2) -------------
+// ---- optional "hear the beat": two quiet sines (scene 4) ------------------------
 let audio = null;
 function syncBeatAudio(beatHz){
   if (!audio) return;
-  // keep the two tones' separation ~ the beat you see, around 220 Hz
-  audio.oscB.frequency.setTargetAtTime(220 + clamp(beatHz, 0, 8), audio.ctx.currentTime, 0.05);
+  audio.oscB.frequency.setTargetAtTime(220 + clamp(beatHz, 0, 10), audio.ctx.currentTime, 0.05);
 }
-document.getElementById('hearBtn').addEventListener('click', async (e) => {
+document.getElementById('hearBtn').addEventListener('click', (e) => {
   const btn = e.currentTarget;
   if (audio) { audio.ctx.close(); audio = null; btn.textContent = '♪ hear it'; return; }
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
-  const g = new GainNode(ctx, { gain: 0.06 });   // quiet
+  const gain = new GainNode(ctx, { gain: 0.06 });
   const oscA = new OscillatorNode(ctx, { type: 'sine', frequency: 220 });
   const oscB = new OscillatorNode(ctx, { type: 'sine', frequency: 222 });
-  oscA.connect(g); oscB.connect(g); g.connect(ctx.destination);
+  oscA.connect(gain); oscB.connect(gain); gain.connect(ctx.destination);
   oscA.start(); oscB.start();
-  audio = { ctx, oscA, oscB, g };
+  audio = { ctx, oscA, oscB };
   btn.textContent = '❚❚ stop';
 });
 </script>
