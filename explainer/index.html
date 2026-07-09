@@ -132,11 +132,11 @@
     <section class="step" data-i="7">
       <div class="card">
         <h2>Cycles within cycles</h2>
-        <p>These waves don't just run — they turn in cycles. A handful of beats make a
-        small cycle; a few of those make a bigger one; the whole piece is one long cycle
-        on top.</p>
-        <p>A low gong marks the close of each. <span class="dim">Gamelan builds time this
-        way — nested gongs, a clock inside a clock.</span></p>
+        <p>Zoom out from the beat and it gathers into loops. A few beats make a small
+        cycle; a few of those make a bigger one; the whole piece is one long cycle.</p>
+        <p>Each one ends on a gong — the bigger the cycle, the lower the gong. You never
+        count bars; you listen for the last gong to know where you are.
+        <span class="dim">Gamelan calls this colotomy — nested gongs marking time.</span></p>
       </div>
     </section>
 
@@ -246,35 +246,54 @@ function bracket(x0, x1, y, text){
   g.fillStyle = LABEL; g.font = '500 12px -apple-system, sans-serif';
   g.textAlign = 'center'; g.fillText(text, (x0 + x1) / 2, y - 6); g.textAlign = 'left';
 }
-// the cycle scene: nested colotomic gongs (tall at the cycle ends, shorter at
-// each subdivision) + the tone living inside, and a playhead that rings the gong
-function drawCycles(t){
-  const B = plotBox(), yBase = H * 0.54;
+// the cycle scene: the beat-wave runs below; nested gongs mark time above it.
+// SCROLL-LOCKED — p01 (0→1) is scroll position through the scene; it sweeps the
+// playhead across one full cycle, and each gong rings as the head passes it
+// (bigger, lower gong = bigger close). Scrubbing back re-rings them.
+function drawCycles(p01){
+  const B = plotBox(), yBase = H * 0.52;
   g.strokeStyle = '#26262e'; g.lineWidth = 1;
   g.beginPath(); g.moveTo(B.x0, yBase); g.lineTo(B.x1, yBase); g.stroke();
-  const specs = [
-    { h: 66, wdt: 2.5, c: '#ffffff' }, // gong — cycle ends
-    { h: 42, wdt: 2.0, c: '#cfd8ff' }, // half
-    { h: 27, wdt: 1.5, c: '#9aa8d0' }, // quarter
-    { h: 15, wdt: 1.0, c: '#666f8c' }, // eighth
-  ];
+
+  // the beat living under the timeline (continuity with the earlier scenes)
+  drawWave(yBase + 54, Math.min(H * 0.045, 30), 20, driftPhase * 0.3, TONE_A, 1.4, 0.45);
+
+  // nested gongs: fine beats (ketuk), grouped by kempul, a kenong closes each
+  // subcycle, the great low gong closes the whole cycle.
   const N = 8;
+  const spec = [
+    { r: 8.5, c: '255,255,255' }, // 0 gong ageng — cycle ends
+    { r: 6.0, c: '207,216,255' }, // 1 kenong — subcycle close
+    { r: 4.0, c: '154,168,208' }, // 2 kempul
+    { r: 2.4, c: '110,120,150' }, // 3 ketuk — fine beat
+  ];
   for (let i = 0; i <= N; i++){
-    const lvl = i % 8 === 0 ? 0 : i % 4 === 0 ? 1 : i % 2 === 0 ? 2 : 3;
-    const s = specs[lvl], x = B.x0 + (i / N) * B.w;
-    g.strokeStyle = s.c; g.lineWidth = s.wdt;
-    g.beginPath(); g.moveTo(x, yBase); g.lineTo(x, yBase - s.h); g.stroke();
+    const lvl = (i === 0 || i === N) ? 0 : (i === N / 2) ? 1 : (i % 2 === 0) ? 2 : 3;
+    const gx = i / N, x = B.x0 + gx * B.w, s = spec[lvl];
+    const passed = p01 >= gx - 0.001;
+    // the gong: dim ahead of the head, lit once passed
+    g.fillStyle = `rgba(${s.c},${passed ? 0.95 : 0.30})`;
+    g.beginPath(); g.arc(x, yBase, s.r, 0, 6.2832); g.fill();
+    // the strike: a ring blooms as the head crosses (scroll-locked)
+    const d = p01 - gx, ringW = 0.09 + 0.035 * (3 - lvl);   // bigger gong rings longer
+    if (d >= 0 && d < ringW){
+      const u = d / ringW;                                   // 0 at strike → 1 fading out
+      g.strokeStyle = `rgba(${s.c},${((1 - u) * 0.9).toFixed(3)})`; g.lineWidth = 1.5;
+      g.beginPath(); g.arc(x, yBase, s.r + u * (14 + (3 - lvl) * 14), 0, 6.2832); g.stroke();
+    }
   }
-  drawWave(yBase + 46, Math.min(H * 0.05, 34), 24, driftPhase * 0.4, TONE_A, 1.4, 0.6);
-  bracket(B.x0, B.x1, yBase - 92, 'one cycle');
-  bracket(B.x0, B.x0 + B.w * 0.25, yBase - 46, 'subcycle');
+
+  // brackets: one subcycle, then the whole cycle; name the great gong
+  bracket(B.x0, B.x0 + B.w * 0.5, yBase - 40, 'subcycle');
+  bracket(B.x0, B.x1, yBase - 74, 'one cycle');
   g.fillStyle = '#cfd8ff'; g.font = '500 12px -apple-system, sans-serif';
-  g.textAlign = 'center'; g.fillText('gong', B.x1, yBase - 72); g.textAlign = 'left';
-  const period = 7.0, ph = (t % period) / period;
-  g.fillStyle = '#fff'; g.beginPath(); g.arc(B.x0 + ph * B.w, yBase, 3.5, 0, 6.2832); g.fill();
-  const rt = t % period;                         // the gong rings as the cycle closes/opens
-  if (rt < 1.0){ g.strokeStyle = `rgba(207,216,255,${(1 - rt).toFixed(3)})`; g.lineWidth = 1.5;
-    g.beginPath(); g.arc(B.x0, yBase, 6 + rt * 26, 0, 6.2832); g.stroke(); }
+  g.textAlign = 'center'; g.fillText('gong', B.x1, yBase - 92); g.textAlign = 'left';
+
+  // the scroll-locked playhead — moves only as you scroll
+  const px = B.x0 + clamp(p01, 0, 1) * B.w;
+  g.strokeStyle = 'rgba(255,255,255,0.26)'; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(px, yBase - 28); g.lineTo(px, yBase + 68); g.stroke();
+  g.fillStyle = '#fff'; g.beginPath(); g.arc(px, yBase, 3, 0, 6.2832); g.fill();
 }
 
 function render(p, dt, t){
@@ -327,8 +346,8 @@ function render(p, dt, t){
       label(r.name, r.y - r.amp - 15, LABEL);
     }
   } else if (p < 0.895){
-    // --- cycles: nested colotomic gongs ---
-    drawCycles(t);
+    // --- cycles: nested gongs, scroll-locked playhead sweeps one cycle ---
+    drawCycles(clamp((p - 0.80) / (0.88 - 0.80), 0, 1));
   } else {
     // --- one field: many waves overlapping into one band ---
     for (let k = 0; k < 7; k++){
