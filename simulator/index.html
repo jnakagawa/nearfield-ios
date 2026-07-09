@@ -700,9 +700,6 @@ async function loadConfigs() {
     if (sc) sim.scoreData = sc;
     if (sd) sim.scaleDrift = sd;
   } catch (_) { /* file:// or no server — embedded defaults are fine */ }
-  // Kendhang (test): the gamelan drummer's leading pulse, rendered as felt
-  // membrane strokes. Off by default — level 0 leaves the ametric piece intact.
-  if (!sim.params.kendhang) sim.params.kendhang = { level: 0, period_s: 0.6 };
   sim.score = new ScoreState(sim.scoreData, sim.params);
 }
 
@@ -975,60 +972,8 @@ function disposeAudio() {
   }
 }
 
-// --- kendhang: the drummer's leading pulse (synthesized membrane strokes) -----
-// True-to-source lens: no drum-kit tick. Two stroke colors — a low open "dhah"
-// (weight, with a downward pitch-bend like a real head) and a light high "tak"
-// (articulation) — placed STRUCTURALLY, not metronomically: dhah on the strong
-// beat, taks filling per the section's density (irama: sparse in buka → busier
-// in cycle-ii). Subtle by design; routed low through the reverb as a felt spine.
-function kendhangStroke(when, lowHz, dropHz, dropS, peak, decayS) {
-  const ctx = sim.audio.ctx, bus = sim.audio.kendhangBus;
-  const o = new OscillatorNode(ctx, { type: 'sine' });
-  o.frequency.setValueAtTime(lowHz, when);
-  o.frequency.exponentialRampToValueAtTime(dropHz, when + dropS);
-  const g = new GainNode(ctx, { gain: 0.0001 });
-  g.gain.setValueAtTime(0.0001, when);
-  g.gain.linearRampToValueAtTime(peak, when + 0.004);
-  g.gain.exponentialRampToValueAtTime(0.0004, when + decayS);
-  o.connect(g).connect(bus);
-  o.start(when); o.stop(when + decayS + 0.02);
-}
-// irama (full): as the piece expands, the gong-frame stretches while the surface
-// fills — the balungan slows, the elaboration doubles. Each char is one "surface
-// pulse" slot (period = the kendhang control): D=dhah (low open, weight),
-// H=thung (mid colotomic accent), t=tak (light), .=rest. Frame length (chars)
-// grows buka→cycle-ii, then contracts — dhah spacing lengthens as taks multiply.
-const IRAMA = {
-  buka:         'D.......',
-  'cycle-i':    'D.t.H.t.',
-  turning:      'D.t.H.t.t.t.',
-  'cycle-ii':   'D.tHt.tHt.tHt.t.',
-  'final-gong': 'D.t.H.t.',
-  end:          'D...',
-};
-function kendhangHit(ch, when, lvl) {
-  if (ch === 'D') kendhangStroke(when, 74, 50, 0.16, 0.55 * lvl, 0.34);   // dhah
-  else if (ch === 'H') kendhangStroke(when, 120, 95, 0.10, 0.30 * lvl, 0.22); // thung
-  else if (ch === 't') kendhangStroke(when, 190, 150, 0.05, 0.22 * lvl, 0.11); // tak
-}
-function scheduleKendhang(now) {
-  const K = sim.kendhang, p = sim.params.kendhang;
-  if (!K || !p || p.level <= 0 || !sim.audio.kendhangBus) { if (K) K.next = null; return; }
-  const base = Math.min(Math.max(p.period_s, 0.2), 3); // the surface pulse
-  if (K.next == null || K.next < now - 1) { K.next = now + 0.05; K.slot = 0; K.label = null; }
-  while (K.next < now + 0.25) {                        // ~250 ms lookahead
-    const label = sim.scoreOn && sim.scoreNow ? sim.scoreNow.label : 'cycle-i';
-    if (label !== K.label) { K.label = label; K.slot = 0; } // restart the bar on a new frame
-    const pat = IRAMA[label] || IRAMA['cycle-i'];
-    kendhangHit(pat[K.slot % pat.length], K.next, p.level);
-    K.slot++;
-    K.next += base;
-  }
-}
-
 function applyAudio(now) {
   if (!sim.audio) return;
-  scheduleKendhang(now);
   const comp = sim.scoreOn ? sim.compression : 1;
   const phi = 2 * Math.PI * ((sim.t * comp) % sim.params.breath.period_s) / sim.params.breath.period_s;
   const breath = breathGain(phi, sim.params);
@@ -1429,10 +1374,6 @@ const PARAM_DEFS = [
     ['breath.period_s', 'breath period (s)', 10, 180, 5],
     ['breath.ensemble_depth', 'breath depth', 0, 0.3, 0.01],
   ]},
-  { group: 'Kendhang (test — the drummer)', items: [
-    ['kendhang.level', 'kendhang level', 0, 1, 0.02],
-    ['kendhang.period_s', 'surface pulse (s)', 0.25, 2, 0.05],
-  ]},
   { group: 'Timbre (voicing)', items: [
     ['timbre.loudness_exponent', 'loudness tilt', 0, 1, 0.05],
     ['timbre.shelf_gain_db', 'high shelf (dB)', -18, 0, 0.5],
@@ -1750,13 +1691,8 @@ document.getElementById('startBtn').onclick = async () => {
   comp.connect(shelf).connect(lowpass);
   lowpass.connect(dryGain).connect(master);
   lowpass.connect(convolver).connect(wetGain).connect(master);
-  // kendhang bus: dry punch to the master + a little reverb body
-  const kendhangBus = new GainNode(ctx, { gain: 0.8 });
-  kendhangBus.connect(master);
-  kendhangBus.connect(convolver);
   sim.audio = { ctx, comp, master, shelf, lowpass, dryGain, wetGain, convolver,
-    kendhangBus, irCfg: null, bgEl: null };
-  sim.kendhang = { next: null, slot: 0, label: null };
+    irCfg: null, bgEl: null };
   rebuildReverbIR();
 
   // Background survival (iOS Safari): route output through an <audio> element
