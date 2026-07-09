@@ -129,7 +129,18 @@
       </div>
     </section>
 
-    <section class="step end" data-i="7">
+    <section class="step" data-i="7">
+      <div class="card">
+        <h2>Cycles within cycles</h2>
+        <p>These waves don't just run — they turn in cycles. A handful of beats make a
+        small cycle; a few of those make a bigger one; the whole piece is one long cycle
+        on top.</p>
+        <p>A low gong marks the close of each. <span class="dim">Gamelan builds time this
+        way — nested gongs, a clock inside a clock.</span></p>
+      </div>
+    </section>
+
+    <section class="step end" data-i="8">
       <div class="card">
         <h2>One field</h2>
         <p>A whole room of these waves, crossing in the air — loud where they agree,
@@ -228,34 +239,70 @@ function label(text, cy, color){
 const CYC = 7;               // base cycles across the plot
 let driftPhase = 0;          // time-based drift for the beat scenes
 
+// a labelled bracket spanning [x0,x1] at height y
+function bracket(x0, x1, y, text){
+  g.strokeStyle = '#3a3a48'; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(x0, y + 7); g.lineTo(x0, y); g.lineTo(x1, y); g.lineTo(x1, y + 7); g.stroke();
+  g.fillStyle = LABEL; g.font = '500 12px -apple-system, sans-serif';
+  g.textAlign = 'center'; g.fillText(text, (x0 + x1) / 2, y - 6); g.textAlign = 'left';
+}
+// the cycle scene: nested colotomic gongs (tall at the cycle ends, shorter at
+// each subdivision) + the tone living inside, and a playhead that rings the gong
+function drawCycles(t){
+  const B = plotBox(), yBase = H * 0.54;
+  g.strokeStyle = '#26262e'; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(B.x0, yBase); g.lineTo(B.x1, yBase); g.stroke();
+  const specs = [
+    { h: 66, wdt: 2.5, c: '#ffffff' }, // gong — cycle ends
+    { h: 42, wdt: 2.0, c: '#cfd8ff' }, // half
+    { h: 27, wdt: 1.5, c: '#9aa8d0' }, // quarter
+    { h: 15, wdt: 1.0, c: '#666f8c' }, // eighth
+  ];
+  const N = 8;
+  for (let i = 0; i <= N; i++){
+    const lvl = i % 8 === 0 ? 0 : i % 4 === 0 ? 1 : i % 2 === 0 ? 2 : 3;
+    const s = specs[lvl], x = B.x0 + (i / N) * B.w;
+    g.strokeStyle = s.c; g.lineWidth = s.wdt;
+    g.beginPath(); g.moveTo(x, yBase); g.lineTo(x, yBase - s.h); g.stroke();
+  }
+  drawWave(yBase + 46, Math.min(H * 0.05, 34), 24, driftPhase * 0.4, TONE_A, 1.4, 0.6);
+  bracket(B.x0, B.x1, yBase - 92, 'one cycle');
+  bracket(B.x0, B.x0 + B.w * 0.25, yBase - 46, 'subcycle');
+  g.fillStyle = '#cfd8ff'; g.font = '500 12px -apple-system, sans-serif';
+  g.textAlign = 'center'; g.fillText('gong', B.x1, yBase - 72); g.textAlign = 'left';
+  const period = 7.0, ph = (t % period) / period;
+  g.fillStyle = '#fff'; g.beginPath(); g.arc(B.x0 + ph * B.w, yBase, 3.5, 0, 6.2832); g.fill();
+  const rt = t % period;                         // the gong rings as the cycle closes/opens
+  if (rt < 1.0){ g.strokeStyle = `rgba(207,216,255,${(1 - rt).toFixed(3)})`; g.lineWidth = 1.5;
+    g.beginPath(); g.arc(B.x0, yBase, 6 + rt * 26, 0, 6.2832); g.stroke(); }
+}
+
 function render(p, dt, t){
   g.clearRect(0, 0, W, H);
   const B = plotBox();
   const amp = Math.min(H * 0.075, 64);
   const y1 = H * 0.30, y2 = H * 0.50, ySum = H * 0.74;
 
-  // scene weights
-  const one   = seg(p, 0.08, 0.18) * (1 - seg(p, 0.24, 0.30));       // single wave
-  const two   = seg(p, 0.24, 0.32);                                  // second wave in
-  const add   = seg(p, 0.38, 0.46);                                  // sum appears
-  const addPh = seg(p, 0.40, 0.60);                                  // scroll slides phase 0→2π
-  const beatOn = seg(p, 0.54, 0.64);                                 // detune the pair
-  const tuneP = seg(p, 0.66, 0.82);                                  // in-tune slider
-  const layers = seg(p, 0.82, 0.92);                                 // stacked registers
-  const fieldC = seg(p, 0.92, 1.0);                                  // many waves
+  // scene weights (9 scenes; cards centered near (i+0.5)/9)
+  const one   = seg(p, 0.07, 0.13) * (1 - seg(p, 0.20, 0.26));       // single wave
+  const two   = seg(p, 0.20, 0.29);                                  // second wave in
+  const add   = seg(p, 0.31, 0.40);                                  // sum appears
+  const addPh = seg(p, 0.33, 0.48);                                  // scroll slides phase 0→2π
+  const beatOn = seg(p, 0.45, 0.55);                                 // detune the pair
+  const tuneP = seg(p, 0.57, 0.68);                                  // in-tune slider
+  const fieldC = seg(p, 0.90, 0.97);                                 // many waves (close)
 
   // relative phase & detune
   const scrollPhase = addPh * Math.PI * 2;                           // add-up: scroll = align→cancel→align
-  // detune (extra cycles on B): grows in the beat scene, then slides across in-tune
   const detune = 1.4 * beatOn * (1 - tuneP) + 2.8 * tuneP;
   const cycB = CYC + detune;
-  // time drift so the beat visibly crawls; rate ∝ detune (and a hair in add-up)
-  driftPhase += dt * (0.6 * add * (1 - beatOn) + 2.2 * detune);
+  // time drift so the beat visibly crawls; rate ∝ detune (a hair in add-up)
+  driftPhase += dt * (0.6 * add * (1 - beatOn) + 2.2 * Math.max(detune, 0.35 * (p > 0.7 ? 1 : 0)));
   const phaseA = 0.0;
   const phaseB = scrollPhase + driftPhase;
 
-  if (layers < 0.02 && fieldC < 0.02){
-    // --- waves scenes: A, B, and their sum ---
+  if (p < 0.70){
+    // --- waves: A, B, and their sum ---
     if (two > 0.01 || one > 0.01){
       drawWave(y1, amp, CYC, phaseA, TONE_A, 2, 1);
       label('tone A', y1 - amp - 16, LABEL);
@@ -268,23 +315,25 @@ function render(p, dt, t){
       drawSum(ySum, amp, CYC, phaseA, cycB, phaseB, SUM, 2.4, beatOn > 0.05);
       label('A + B  (what you hear)', ySum - amp * 2 - 16, '#cfd8ff');
     }
-  } else {
+  } else if (p < 0.80){
     // --- layers: a few sines at different registers, stacked ---
     const regs = [
-      { y: H * 0.24, cyc: 3.2, amp: amp * 1.25, w: layers, name: 'the pulse' },
-      { y: H * 0.42, cyc: 6.5, amp: amp * 1.0,  w: seg(p,0.84,0.92), name: 'the bones' },
-      { y: H * 0.60, cyc: 13,  amp: amp * 0.7,  w: seg(p,0.86,0.93), name: 'the ornament' },
+      { y: H * 0.24, cyc: 3.2, amp: amp * 1.25, w: seg(p,0.70,0.75), name: 'the pulse' },
+      { y: H * 0.42, cyc: 6.5, amp: amp * 1.0,  w: seg(p,0.72,0.77), name: 'the bones' },
+      { y: H * 0.60, cyc: 13,  amp: amp * 0.7,  w: seg(p,0.74,0.79), name: 'the ornament' },
     ];
     for (const r of regs){
       drawWave(r.y, r.amp, r.cyc, driftPhase * 0.3 + r.cyc, TONE_A, 1.8, r.w);
       label(r.name, r.y - r.amp - 15, LABEL);
     }
-    if (fieldC > 0.02){
-      // hint of the ensemble: many faint waves overlapping into one band
-      for (let k = 0; k < 6; k++){
-        drawWave(H * 0.5, amp * (0.5 + 0.12 * k), 4 + k * 3.3,
-                 driftPhase * 0.2 + k, INK, 1, fieldC * 0.35);
-      }
+  } else if (p < 0.895){
+    // --- cycles: nested colotomic gongs ---
+    drawCycles(t);
+  } else {
+    // --- one field: many waves overlapping into one band ---
+    for (let k = 0; k < 7; k++){
+      drawWave(H * 0.5, amp * (0.45 + 0.11 * k), 4 + k * 3.1,
+               driftPhase * 0.2 + k * 1.7, INK, 1, 0.28 + fieldC * 0.25);
     }
   }
 
