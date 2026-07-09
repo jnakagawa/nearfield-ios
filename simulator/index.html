@@ -700,6 +700,9 @@ async function loadConfigs() {
     if (sc) sim.scoreData = sc;
     if (sd) sim.scaleDrift = sd;
   } catch (_) { /* file:// or no server — embedded defaults are fine */ }
+  // Kendhang (test): the gamelan drummer's leading pulse, rendered as felt
+  // membrane strokes. Off by default — level 0 leaves the ametric piece intact.
+  if (!sim.params.kendhang) sim.params.kendhang = { level: 0, period_s: 2.6 };
   sim.score = new ScoreState(sim.scoreData, sim.params);
 }
 
@@ -972,8 +975,48 @@ function disposeAudio() {
   }
 }
 
+// --- kendhang: the drummer's leading pulse (synthesized membrane strokes) -----
+// True-to-source lens: no drum-kit tick. Two stroke colors — a low open "dhah"
+// (weight, with a downward pitch-bend like a real head) and a light high "tak"
+// (articulation) — placed STRUCTURALLY, not metronomically: dhah on the strong
+// beat, taks filling per the section's density (irama: sparse in buka → busier
+// in cycle-ii). Subtle by design; routed low through the reverb as a felt spine.
+function kendhangStroke(when, lowHz, dropHz, dropS, peak, decayS) {
+  const ctx = sim.audio.ctx, bus = sim.audio.kendhangBus;
+  const o = new OscillatorNode(ctx, { type: 'sine' });
+  o.frequency.setValueAtTime(lowHz, when);
+  o.frequency.exponentialRampToValueAtTime(dropHz, when + dropS);
+  const g = new GainNode(ctx, { gain: 0.0001 });
+  g.gain.setValueAtTime(0.0001, when);
+  g.gain.linearRampToValueAtTime(peak, when + 0.004);
+  g.gain.exponentialRampToValueAtTime(0.0004, when + decayS);
+  o.connect(g).connect(bus);
+  o.start(when); o.stop(when + decayS + 0.02);
+}
+const KENDHANG_DENSITY = { buka: 0, 'cycle-i': 1, turning: 2, 'cycle-ii': 3, 'final-gong': 2, end: 0 };
+const KENDHANG_TAKS = [[], [2], [2, 3], [1, 2, 3]]; // weak-beats that get a tak, by density
+function scheduleKendhang(now) {
+  const K = sim.kendhang, p = sim.params.kendhang;
+  if (!K || !p || p.level <= 0 || !sim.audio.kendhangBus) { if (K) K.next = null; return; }
+  const period = Math.min(Math.max(p.period_s, 0.5), 8);
+  if (K.next == null || K.next < now - 1) { K.next = now + 0.05; K.beat = 0; }
+  const label = sim.scoreOn && sim.scoreNow ? sim.scoreNow.label : 'cycle-i';
+  const d = KENDHANG_DENSITY[label] ?? 1;
+  while (K.next < now + 0.25) {                   // ~250 ms lookahead
+    const i = K.beat, strong = (i % 4) === 0;
+    if (strong) {
+      kendhangStroke(K.next, 74, 50, 0.16, 0.55 * p.level, 0.34); // dhah — weight
+    } else if (KENDHANG_TAKS[d].includes(i % 4)) {
+      kendhangStroke(K.next, 190, 150, 0.05, 0.24 * p.level, 0.11); // tak — light
+    }
+    K.beat++;
+    K.next += period;
+  }
+}
+
 function applyAudio(now) {
   if (!sim.audio) return;
+  scheduleKendhang(now);
   const comp = sim.scoreOn ? sim.compression : 1;
   const phi = 2 * Math.PI * ((sim.t * comp) % sim.params.breath.period_s) / sim.params.breath.period_s;
   const breath = breathGain(phi, sim.params);
@@ -1374,6 +1417,10 @@ const PARAM_DEFS = [
     ['breath.period_s', 'breath period (s)', 10, 180, 5],
     ['breath.ensemble_depth', 'breath depth', 0, 0.3, 0.01],
   ]},
+  { group: 'Kendhang (test — the drummer)', items: [
+    ['kendhang.level', 'kendhang level', 0, 1, 0.02],
+    ['kendhang.period_s', 'pulse period (s)', 0.8, 6, 0.1],
+  ]},
   { group: 'Timbre (voicing)', items: [
     ['timbre.loudness_exponent', 'loudness tilt', 0, 1, 0.05],
     ['timbre.shelf_gain_db', 'high shelf (dB)', -18, 0, 0.5],
@@ -1691,8 +1738,13 @@ document.getElementById('startBtn').onclick = async () => {
   comp.connect(shelf).connect(lowpass);
   lowpass.connect(dryGain).connect(master);
   lowpass.connect(convolver).connect(wetGain).connect(master);
+  // kendhang bus: dry punch to the master + a little reverb body
+  const kendhangBus = new GainNode(ctx, { gain: 0.8 });
+  kendhangBus.connect(master);
+  kendhangBus.connect(convolver);
   sim.audio = { ctx, comp, master, shelf, lowpass, dryGain, wetGain, convolver,
-    irCfg: null, bgEl: null };
+    kendhangBus, irCfg: null, bgEl: null };
+  sim.kendhang = { next: null, beat: 0 };
   rebuildReverbIR();
 
   // Background survival (iOS Safari): route output through an <audio> element
