@@ -153,3 +153,7 @@ def test_static_file_serves_simulator_and_blocks_traversal():
     assert hub.static_file("/config/../../etc/passwd") is None
     assert hub.static_file("/hub/hub.py") is None
     assert hub.static_file("/simulator/nope.html") is None
+    # explainer is served from its own allowlisted dir
+    exp = hub.static_file("/explainer/index.html")
+    assert exp is not None and exp[1] == "text/html"
+    assert hub.static_file("/explainer") is not None  # bare -> index.html

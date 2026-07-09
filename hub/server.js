@@ -36,14 +36,15 @@ const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 const REPO = path.join(__dirname, '..');
 const CTYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
   '.json': 'application/json', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml' };
+const STATIC_DIRS = ['simulator', 'config', 'explainer'];
 function staticFile(reqPath) {
   // normalize to a repo-relative path (drop any proxy prefix)
-  for (const anchor of ['simulator', 'config']) {
+  for (const anchor of STATIC_DIRS) {
     const i = reqPath.indexOf('/' + anchor);
     if (i >= 0) { reqPath = reqPath.slice(i); break; }
   }
   const segs = reqPath.split('/').filter(x => x && x !== '..');
-  if (!segs.length || (segs[0] !== 'simulator' && segs[0] !== 'config')) return null;
+  if (!segs.length || !STATIC_DIRS.includes(segs[0])) return null;
   const rel = segs.slice(1).join('/') || 'index.html';
   const base = path.resolve(REPO, segs[0]);
   const target = path.resolve(base, rel);
@@ -201,7 +202,8 @@ const server = http.createServer((req, res) => {
       .replace('/*NF_SCORE*/ null', JSON.stringify(score));
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end(html);
-  } else if (p === '/simulator' || p.includes('/simulator/') || p.includes('/config/')) {
+  } else if (p === '/simulator' || p === '/explainer' || p.includes('/simulator/')
+             || p.includes('/config/') || p.includes('/explainer')) {
     const served = staticFile(p);
     if (!served) { res.writeHead(404); res.end('not found\n'); }
     else { res.writeHead(200, { 'Content-Type': served.ctype }); res.end(served.body); }

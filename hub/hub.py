@@ -250,7 +250,7 @@ class Hub:
         simulator fetches). Returns (bytes, content_type) or None. Path is
         constrained to those two directories — no traversal escapes."""
         segs = [s for s in path.split("/") if s and s != ".."]
-        if not segs or segs[0] not in ("simulator", "config"):
+        if not segs or segs[0] not in ("simulator", "config", "explainer"):
             return None
         rel = "/".join(segs[1:]) or "index.html"
         base = (Path(__file__).resolve().parent.parent / segs[0]).resolve()
@@ -297,9 +297,10 @@ class Hub:
             resp = connection.respond(200, self.projection_html())
             resp.headers["Content-Type"] = "text/html"
             return resp
-        if path == "/simulator" or "/simulator/" in path or "/config/" in path:
+        if (path in ("/simulator", "/explainer") or "/simulator/" in path
+                or "/config/" in path or "/explainer" in path):
             # normalize to a repo-relative path (drop any proxy prefix)
-            for anchor in ("simulator", "config"):
+            for anchor in ("simulator", "config", "explainer"):
                 if "/" + anchor in path:
                     path = path[path.index("/" + anchor):]
                     break
