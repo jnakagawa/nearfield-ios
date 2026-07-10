@@ -1,0 +1,49 @@
+NEARFIELD — gallery labels
+==========================
+
+Tombstone (the wall label — facts only)
+---------------------------------------
+
+    Jonah Nakagawa
+    Nearfield, 2026
+    for any number of phones
+    Networked smartphones, custom software, sound, projection
+    16-minute cycle
+
+
+Notes
+-----
+
+- "for any number of phones" is the open-form convention (cf. Terry Riley,
+  In C, "for any number of performers") — the piece scales from one phone to
+  a crowd, so the card doesn't prescribe a count.
+
+- "16-minute cycle" is the length of one pass (the score is 960 s). It is a
+  discrete cycle, not a seamless loop — so avoid "looped."
+
+- The performance format (a cycle run repeatedly on a timetable while the
+  audience comes and goes) is a RECURRING PERFORMANCE. Its schedule is
+  showtime info — post it separately from the tombstone so the label stays
+  evergreen for any staging, e.g.:
+
+      Performances on the half hour, 2–5 PM
+
+  Alternates: "New cycle every half hour" / "Cycles begin on the half hour;
+  stay for one or many."
+
+- Accession number: a museum tombstone ends with one, but that's assigned
+  only when a work enters a collection — not applicable yet.
+
+
+Alternate registers (if the card wants a different voice)
+---------------------------------------------------------
+
+  medium line, expansive (names the phenomenon):
+    Participants' smartphones, custom software, wireless network,
+    synthesized tones, and the interference they raise in the air
+
+  medium line, one-liner / poetic:
+    Smartphones, software, and the standing waves between them.
+
+  instrumentation line, warmer:
+    for however many phones gather
