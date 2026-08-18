@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nearfield — beating vs. AM (3 voices)</title>
+<style>
+  :root{ color-scheme: dark; }
+  *{ box-sizing:border-box; margin:0; }
+  body{ background:#07070b; color:#e9e9f0;
+    font:14px/1.5 -apple-system,"Helvetica Neue",Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased; padding:24px 18px 60px;
+    display:flex; flex-direction:column; align-items:center; }
+  h1{ font-size:18px; font-weight:600; letter-spacing:.02em; }
+  .sub{ color:#8c8c99; font-size:13px; margin:5px 0 18px; max-width:720px; text-align:center; }
+  .sub b{ color:#cfd0da; font-weight:600; }
+  .wrap{ width:min(860px,96vw); display:flex; flex-direction:column; gap:16px; }
+
+  .panel{ background:#0e0e15; border:1px solid #20202b; border-radius:14px; padding:16px 18px; }
+  .row{ display:flex; gap:20px 26px; flex-wrap:wrap; align-items:center; }
+  .seg{ display:flex; border:1px solid #34343f; border-radius:9px; overflow:hidden; }
+  .seg button{ background:#15151d; color:#b7b7c4; border:0; padding:9px 15px; font-size:13px;
+    cursor:pointer; letter-spacing:.01em; }
+  .seg button.on{ background:#2c4a7a; color:#fff; }
+  .seg button:not(.on):hover{ background:#1d1d27; }
+
+  .ctrl{ display:flex; flex-direction:column; gap:6px; font-size:12px; color:#9a9aa8; min-width:140px; }
+  .ctrl .lab{ text-transform:uppercase; letter-spacing:.1em; font-size:11px; color:#7d7d8a; }
+  .ctrl .val{ color:#dcdce6; font-variant-numeric:tabular-nums; }
+  input[type=range]{ width:100%; accent-color:#7fb2ff; }
+
+  .btn{ background:#12121c; border:1px solid #3b3b46; color:#c9c9d4; border-radius:999px;
+    padding:9px 18px; font-size:13px; cursor:pointer; letter-spacing:.03em; }
+  .btn:hover{ border-color:#7fb2ff; color:#fff; }
+  .btn.primary{ background:#243c66; border-color:#3f6bb0; color:#fff; }
+  .btn.armed{ border-color:#ffd27f; color:#ffe6b3; }
+
+  .voices{ display:flex; gap:10px; flex-wrap:wrap; }
+  .vchip{ display:flex; align-items:center; gap:8px; background:#12121b; border:1px solid #2a2a36;
+    border-radius:10px; padding:8px 12px; font-variant-numeric:tabular-nums; }
+  .vchip .dot{ width:10px; height:10px; border-radius:50%; }
+  .vchip.off{ opacity:.4; }
+  .vchip button{ background:none; border:0; color:#8a8a97; cursor:pointer; font-size:12px; }
+
+  canvas{ display:block; width:100%; border-radius:10px; background:#0a0a10; }
+  .cap{ font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:#7d7d8a; margin:2px 0 6px; }
+  .cap b{ color:#9ec2ff; }
+  .readout{ font-size:13px; color:#a7a7b4; font-variant-numeric:tabular-nums; }
+  .readout b{ color:#e9e9f0; }
+  .explain{ background:#0c0c14; border:1px solid #20202b; border-radius:12px; padding:14px 16px;
+    color:#b9b9c6; font-size:13px; }
+  .explain h3{ font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:#9ec2ff; margin-bottom:6px; }
+  .explain code{ color:#ffd9a6; background:#161620; padding:1px 5px; border-radius:5px; }
+  .key{ color:#ffe6b3; }
+</style>
+</head>
+<body>
+  <h1>Beating vs. AM — 3 voices</h1>
+  <div class="sub">Both make a <b>wobble</b>. Only one is real interference between two tones. The honest test:
+    <b>Solo v1</b> — true beating <b>vanishes</b> (needs two tones), AM <b>keeps wobbling</b> (it's imposed on one tone).</div>
+
+  <div class="wrap">
+    <div class="panel">
+      <div class="row" style="justify-content:space-between">
+        <button id="power" class="btn primary">▶ Start audio</button>
+        <div class="ctrl" style="min-width:0">
+          <span class="lab">Mechanism</span>
+          <div class="seg" id="modeSeg">
+            <button data-m="beat" class="on">Beating (detune)</button>
+            <button data-m="am">AM (tremolo)</button>
+            <button data-m="both">Both — the app</button>
+          </div>
+        </div>
+        <div class="ctrl" style="min-width:0">
+          <span class="lab">Pitches</span>
+          <div class="seg" id="pitchSeg">
+            <button data-p="unison" class="on">Unison cluster</button>
+            <button data-p="triad">Triad (3 degrees)</button>
+          </div>
+        </div>
+        <button id="solo" class="btn">Solo v1 (the test)</button>
+      </div>
+
+      <div class="row" style="margin-top:16px">
+        <div class="ctrl"><span class="lab">Center pitch <span class="val" id="f0V">300 Hz</span></span>
+          <input id="f0" type="range" min="150" max="500" step="1" value="300"></div>
+        <div class="ctrl"><span class="lab">Beat / detune <span class="val" id="detV">3.0 Hz</span></span>
+          <input id="det" type="range" min="0" max="12" step="0.1" value="3"></div>
+        <div class="ctrl"><span class="lab">AM rate <span class="val" id="amrV">3.0 Hz</span></span>
+          <input id="amr" type="range" min="0" max="12" step="0.1" value="3"></div>
+        <div class="ctrl"><span class="lab">AM depth <span class="val" id="amdV">0.90</span></span>
+          <input id="amd" type="range" min="0" max="1" step="0.01" value="0.9"></div>
+        <div class="ctrl"><span class="lab">Volume <span class="val" id="volV">0.5</span></span>
+          <input id="vol" type="range" min="0" max="1" step="0.01" value="0.5"></div>
+      </div>
+
+      <div class="voices" id="voices" style="margin-top:14px"></div>
+    </div>
+
+    <div class="panel">
+      <div class="cap">Waveform (summed output) — watch the <b>envelope</b>. Two equal tones beat to a <b>true zero</b>; AM only dips to (1−depth).</div>
+      <canvas id="scope" width="1600" height="260"></canvas>
+    </div>
+
+    <div class="panel">
+      <div class="cap">Spectrum, zoomed to center ±40 Hz — beating = <b>separate tone lines</b>; AM = <b>one carrier + symmetric sidebands</b>.</div>
+      <canvas id="spec" width="1600" height="260"></canvas>
+      <div class="readout" id="readout" style="margin-top:8px"></div>
+    </div>
+
+    <div class="explain" id="explain"></div>
+  </div>
+
+<script>
+'use strict';
+/* ============================================================================
+   Nearfield — beating vs. amplitude modulation, isolated to 3 voices.
+   Mirrors simulator/index.html's audio graph:
+     • each voice = a sine (the sim stacks 4 harmonic partials; the beating/AM
+       distinction is identical per partial, so we use the fundamental for a
+       clean spectrum).
+     • AM ("shimmer") = an LFO OscillatorNode -> gain -> voiceGain.gain
+       (exactly like index.html lines 931-933 / 1023-1024): amplitude tremolo
+       on a SINGLE source. Not beating.
+     • Beating ("ombak") = two/three voices detuned a few Hz and SUMMED. The
+       wobble is emergent interference at |f_i - f_j|. Real beating.
+   ========================================================================= */
+const VCOLORS = ['#7fb2ff', '#9fe0b0', '#ffb27f'];
+const S = {
+  mode: 'beat', pitch: 'unison',
+  f0: 300, det: 3, amr: 3, amd: 0.9, vol: 0.5,
+  solo: false,
+  on: [true, true, true],
+  running: false,
+};
+// triad = three scale degrees (a just-ish minor triad relative to f0)
+const TRIAD = [1.0, 6/5, 3/2];
+
+let ctx = null, master = null, anaT = null, anaF = null;
+const voices = [];   // { osc, vgain, lfo, lfoGain }
+
+function buildAudio(){
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  master = new GainNode(ctx, { gain: S.vol });
+  // time-domain scope tap
+  anaT = new AnalyserNode(ctx, { fftSize: 4096, smoothingTimeConstant: 0 });
+  // high-res spectrum: 32768 bins -> ~1.35 Hz/bin @ 44.1k, enough to resolve a
+  // few-Hz detune or AM sideband.
+  anaF = new AnalyserNode(ctx, { fftSize: 32768, smoothingTimeConstant: 0.5 });
+  master.connect(ctx.destination);
+  master.connect(anaT);
+  master.connect(anaF);
+  for (let i = 0; i < 3; i++){
+    const osc = new OscillatorNode(ctx, { type: 'sine', frequency: S.f0 });
+    const vgain = new GainNode(ctx, { gain: 0 });      // base level (AM target)
+    const lfo = new OscillatorNode(ctx, { type: 'sine', frequency: S.amr });
+    const lfoGain = new GainNode(ctx, { gain: 0 });     // AM depth (0 = no AM)
+    osc.connect(vgain).connect(master);
+    lfo.connect(lfoGain).connect(vgain.gain);           // LFO -> gain param = AM
+    osc.start(); lfo.start();
+    voices.push({ osc, vgain, lfo, lfoGain });
+  }
+}
+
+// per-voice target frequency for the current pitch preset + mechanism
+function freqFor(i){
+  const base = S.pitch === 'unison' ? S.f0 : S.f0 * TRIAD[i];
+  // beating comes from detune: symmetric spread -d, 0, +d (Hz) added to base.
+  const beatOn = (S.mode === 'beat' || S.mode === 'both');
+  const spread = beatOn ? (i - 1) * S.det : 0;   // i=0 -> -det, 1 -> 0, 2 -> +det
+  return base + spread;
+}
+function levelFor(i){
+  if (!S.on[i]) return 0;
+  if (S.solo && i !== 0) return 0;
+  // three voices share headroom
+  return S.vol * 0.33;
+}
+
+function apply(){
+  if (!ctx) return;
+  const now = ctx.currentTime, amOn = (S.mode === 'am' || S.mode === 'both');
+  master.gain.setTargetAtTime(1, now, 0.03);
+  for (let i = 0; i < 3; i++){
+    const v = voices[i], lvl = levelFor(i);
+    v.osc.frequency.setTargetAtTime(freqFor(i), now, 0.03);
+    v.vgain.gain.setTargetAtTime(lvl, now, 0.03);
+    v.lfo.frequency.setTargetAtTime(S.amr, now, 0.03);
+    v.lfoGain.gain.setTargetAtTime(amOn ? S.amd * lvl : 0, now, 0.03);
+  }
+  drawReadout();
+}
+
+// ---- readout + explanation --------------------------------------------------
+function pairBeats(){
+  const f = [0,1,2].filter(i => levelFor(i) > 0).map(freqFor);
+  const out = [];
+  for (let a = 0; a < f.length; a++)
+    for (let b = a+1; b < f.length; b++)
+      out.push(Math.abs(f[a]-f[b]));
+  return out.sort((x,y)=>x-y);
+}
+function drawReadout(){
+  const active = [0,1,2].filter(i => levelFor(i) > 0);
+  const freqs = active.map(i => `v${i+1} ${freqFor(i).toFixed(2)}Hz`).join('  ·  ') || '(silent)';
+  const beats = pairBeats();
+  const beatStr = beats.length ? beats.map(b => b.toFixed(2)+'Hz').join(', ') : '—';
+  document.getElementById('readout').innerHTML =
+    `sounding: <b>${freqs}</b><br>acoustic beat rates |Δf| between summed tones: <b>${beatStr}</b>`;
+
+  const E = document.getElementById('explain');
+  if (S.mode === 'beat'){
+    E.innerHTML = `<h3>Beating (ombak) — real interference</h3>
+      Voices are detuned and <b>summed</b>: <code>sin(2π·f₁t) + sin(2π·f₂t)</code>. The wobble is
+      <span class="key">emergent</span> — no envelope multiplies anything. Rate = <b>|f₁−f₂|</b>, so it tracks the
+      detune slider, not the AM rate. <span class="key">Hit “Solo v1”: the wobble disappears</span> — one tone can't beat.
+      Two <b>equal-loudness</b> tones cancel to a <b>true zero</b> at each trough (watch the waveform).`;
+  } else if (S.mode === 'am'){
+    E.innerHTML = `<h3>AM (shimmer) — imposed tremolo</h3>
+      One tone's gain is multiplied by an LFO: <code>sin(2π·f_c t) · (1 + d·sin(2π·f_m t))</code>. The wobble is
+      <span class="key">imposed</span>, rate = the <b>AM-rate slider</b> (independent of pitch). Spectrum = carrier +
+      two sidebands at <b>f_c ± f_m</b>. <span class="key">Hit “Solo v1”: it still wobbles</span> — proof it isn't beating.
+      Troughs only reach (1−depth), never true zero unless depth = 1.`;
+  } else {
+    E.innerHTML = `<h3>Both — what the app does today</h3>
+      Detune-beating <b>and</b> the shimmer LFO run together. During an encounter each phone adds its own AM on top of the
+      real acoustic beat, so the two wobbles superimpose and <span class="key">muddy</span> each other. If you want the
+      interaction to read as clean interference, the AM should be reduced or driven from the true |Δf| — this is the choice
+      to make.`;
+  }
+}
+
+// ---- canvases ---------------------------------------------------------------
+const scope = document.getElementById('scope'), sctx = scope.getContext('2d');
+const spec = document.getElementById('spec'), pctx = spec.getContext('2d');
+let tbuf = null, fbuf = null;
+
+function drawScope(){
+  const W = scope.width, H = scope.height;
+  sctx.clearRect(0,0,W,H);
+  sctx.strokeStyle = '#1c1c26'; sctx.lineWidth = 1;
+  sctx.beginPath(); sctx.moveTo(0,H/2); sctx.lineTo(W,H/2); sctx.stroke();
+  if (!anaT || !S.running) return;
+  if (!tbuf) tbuf = new Float32Array(anaT.fftSize);
+  anaT.getFloatTimeDomainData(tbuf);
+  // show ~ a few hundred ms so slow beats/tremolo are visible
+  const N = tbuf.length;
+  sctx.strokeStyle = '#7fb2ff'; sctx.lineWidth = 1.4; sctx.beginPath();
+  for (let x = 0; x < W; x++){
+    const idx = Math.floor(x / W * N);
+    const y = H/2 - tbuf[idx] * (H*0.46) / Math.max(0.15, S.vol);
+    x ? sctx.lineTo(x, y) : sctx.moveTo(x, y);
+  }
+  sctx.stroke();
+}
+
+function drawSpec(){
+  const W = spec.width, H = spec.height;
+  pctx.clearRect(0,0,W,H);
+  if (!anaF || !S.running){ return; }
+  if (!fbuf) fbuf = new Float32Array(anaF.frequencyBinCount);
+  anaF.getFloatFrequencyData(fbuf);           // dB
+  const sr = ctx.sampleRate, binHz = sr / anaF.fftSize;
+  const center = S.f0, lo = center - 40, hi = center + 40;
+  // axis
+  pctx.strokeStyle = '#1c1c26'; pctx.lineWidth = 1;
+  pctx.beginPath(); pctx.moveTo(0,H-18); pctx.lineTo(W,H-18); pctx.stroke();
+  pctx.fillStyle = '#5a5a66'; pctx.font = '11px -apple-system,Arial';
+  for (let f = Math.ceil(lo/10)*10; f <= hi; f += 10){
+    const x = (f - lo)/(hi - lo) * W;
+    pctx.fillRect(x, H-18, 1, 5);
+    pctx.fillText(f+'', x-8, H-4);
+  }
+  // bars
+  const loBin = Math.max(0, Math.floor(lo/binHz)), hiBin = Math.ceil(hi/binHz);
+  for (let b = loBin; b <= hiBin; b++){
+    const f = b*binHz, x = (f - lo)/(hi - lo) * W;
+    const db = fbuf[b];                          // ~ -100..0
+    const mag = Math.max(0, (db + 90) / 90);     // 0..1
+    if (mag <= 0) continue;
+    const h = mag * (H - 26);
+    pctx.fillStyle = `rgba(159,194,255,${0.35 + 0.65*mag})`;
+    pctx.fillRect(x-1, H-18-h, 2, h);
+  }
+  // center marker
+  const xc = (center - lo)/(hi-lo)*W;
+  pctx.strokeStyle = 'rgba(255,210,127,0.4)'; pctx.setLineDash([4,4]);
+  pctx.beginPath(); pctx.moveTo(xc,0); pctx.lineTo(xc,H-18); pctx.stroke(); pctx.setLineDash([]);
+}
+
+function raf(){
+  requestAnimationFrame(raf);
+  drawScope(); drawSpec();
+}
+
+// ---- voice chips ------------------------------------------------------------
+function buildChips(){
+  const host = document.getElementById('voices');
+  host.innerHTML = '';
+  for (let i = 0; i < 3; i++){
+    const c = document.createElement('div');
+    c.className = 'vchip' + (S.on[i] ? '' : ' off');
+    c.innerHTML = `<span class="dot" style="background:${VCOLORS[i]}"></span>voice ${i+1}
+      <button data-i="${i}">${S.on[i] ? 'mute' : 'unmute'}</button>`;
+    host.appendChild(c);
+  }
+  host.querySelectorAll('button').forEach(b => b.onclick = () => {
+    const i = +b.dataset.i; S.on[i] = !S.on[i]; buildChips(); apply();
+  });
+}
+
+// ---- wiring -----------------------------------------------------------------
+const $ = id => document.getElementById(id);
+$('power').onclick = async () => {
+  if (!ctx){ buildAudio(); }
+  if (ctx.state === 'suspended') await ctx.resume();
+  S.running = !S.running;
+  if (S.running){ $('power').textContent = '⏸ Stop'; $('power').classList.remove('primary'); apply(); }
+  else { $('power').textContent = '▶ Start audio'; $('power').classList.add('primary');
+         master.gain.setTargetAtTime(0, ctx.currentTime, 0.02); }
+};
+$('modeSeg').onclick = e => { const b = e.target.closest('button'); if(!b) return;
+  S.mode = b.dataset.m; [...e.currentTarget.children].forEach(c=>c.classList.toggle('on',c===b)); apply(); };
+$('pitchSeg').onclick = e => { const b = e.target.closest('button'); if(!b) return;
+  S.pitch = b.dataset.p; [...e.currentTarget.children].forEach(c=>c.classList.toggle('on',c===b)); apply(); };
+$('solo').onclick = () => { S.solo = !S.solo; $('solo').classList.toggle('armed', S.solo);
+  $('solo').textContent = S.solo ? 'Solo v1 ✓ (only v1)' : 'Solo v1 (the test)'; apply(); };
+const bind = (id, key, fmt) => { const el = $(id), v = $(id+'V');
+  el.oninput = () => { S[key] = +el.value; v.textContent = fmt(S[key]); apply(); }; };
+bind('f0','f0', x=>x.toFixed(0)+' Hz');
+bind('det','det', x=>x.toFixed(1)+' Hz');
+bind('amr','amr', x=>x.toFixed(1)+' Hz');
+bind('amd','amd', x=>x.toFixed(2));
+bind('vol','vol', x=>x.toFixed(2));
+
+buildChips(); drawReadout(); raf();
+</script>
+</body>
+</html>
