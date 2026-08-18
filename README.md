@@ -2,6 +2,63 @@
 
 A sound installation where phones create richer harmonics as people physically get closer to each other.
 
+## v2 — Leaves in the Wind (in progress)
+
+A 10–50 phone crowd version is being built on the `design/crowd-ensemble` branch: each
+phone gets a pitch and role (anchor / voice / shimmer) from a scale derived from the
+tone's own slightly-stretched spectrum via sensory-dissonance curves; BLE encounters
+bloom your sound, staying parked thins it, movement recharges it. Design spec:
+`docs/superpowers/specs/2026-07-04-crowd-ensemble-design.md`. Plan:
+`docs/superpowers/plans/2026-07-05-crowd-ensemble-phase1-2.md`.
+
+**Try the simulator (no hardware needed):**
+
+```bash
+open simulator/index.html          # double-click works too; embedded configs
+# or, to serve the live config files:
+python3 -m http.server 8123        # from repo root
+# then visit http://localhost:8123/simulator/index.html
+```
+
+Tap BEGIN (sound needs a user gesture). Drag dots to move people, drag ◎ to move your
+ear. **Tap a dot (without dragging) to open that phone's screen** — the live
+interference-topography visual (spec §14), driven by that agent's real state; identity
+studies live at `simulator/visuals.html`. All reward-model constants are live sliders; `Export params.json` writes the tuning
+that real phones will consume. The "ideal sensing" checkbox A/Bs perfect knowledge vs
+the realistic noisy-BLE model.
+
+**The 16-minute score:** hit *▶ play score* in the Score panel to run the full arc
+(buka → cycle I → turning → cycle II → final gong) with tuning drift and per-phone
+fingerprints. Set *time compression* to 8× or 16× to audition the whole piece in 1–2
+minutes. The *performance seed* makes each performance's detuning unique — pin a seed to
+replay it exactly.
+
+**Hum (hub + phones playing the tuning):**
+
+```bash
+python3 hub/hub.py                 # coordination server on :8770
+# then run the NearfieldEnsemble target (Xcode or simulator);
+# on a real device, enter the Mac's LAN/tailnet IP as <host>:8770
+```
+
+The app auto-joins on launch and keeps its assignment across reconnects (the hub keys
+by device id). Pin `--performance-id` to replay a performance's tuning.
+
+**Tests:**
+
+```bash
+python3 -m pytest tuning/ hub/               # scale derivation + hub protocol
+node --test simulator/tests/core.test.mjs    # reward model + BLE pipeline
+```
+
+To regenerate the scale after changing the spectrum: `cd tuning && python3
+derive_scale.py` (writes `config/scale.json` + a dissonance-curve plot to
+`tuning/plots/`).
+
+---
+
+## v1 — UWB duet (below)
+
 Each participant's phone plays a simple tone. As two people approach each other, their phones detect the proximity using Ultra-Wideband (UWB) and progressively unlock harmonic overtones—transforming isolated sounds into rich, beating textures that emerge from human connection.
 
 ## How It Works
@@ -11,30 +68,15 @@ Each participant's phone plays a simple tone. As two people approach each other,
 3. **UWB Ranging**: NearbyInteraction measures precise distance (±cm accuracy)
 4. **Audio Response**: Web Audio API creates richer harmonics as distance decreases
 
-### Multi-Peer Harmony
-
-Each peer is assigned a unique base note from a pentatonic scale (deterministically by device name). When multiple peers are nearby, their notes naturally form chords — no coordination needed.
-
-### Sound Design
-
-- **Layered oscillators**: Sine + soft triangle blend for warmth
-- **Delay reverb**: Feedback delay creates spacious, installation-quality sound
-- **Spatial panning**: UWB direction data pans each peer's audio in stereo (left peers sound from left speaker, etc.)
-- **Exponential volume**: Power-curve gain mapping for natural fade-in as peers approach
-
-### 3D Visualization
-
-The compass view shows connecting lines between you and each peer. Lines glow brighter and shift from blue to warm white as peers get closer, providing visual feedback of harmonic connections.
-
 ## Proximity → Sound Mapping
 
 | Distance | Effect |
 |----------|--------|
-| > 3m | Silence (peer assigned but inaudible) |
-| 1.5-3m | Peer's base note fades in (exponential) |
-| 1-1.5m | First harmonic (octave) emerges |
-| 0.5-1m | Second harmonic (fifth) added |
-| < 0.5m | Third harmonic (major third) — full chord |
+| > 2m | Base tone only |
+| 1-2m | First harmonic (octave) fades in |
+| 0.6-1m | Second harmonic (fifth) |
+| 0.3-0.6m | Third harmonic (major third) |
+| < 0.3m | Full harmonic richness |
 
 ## Requirements
 

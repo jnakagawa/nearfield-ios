@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Nearfield — logotype & icon studies</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; background: #fff; }
+  body { font: 13px/1.4 -apple-system, BlinkMacSystemFont, sans-serif; color: #111;
+         display: flex; flex-direction: column; overflow: hidden; }
+  #bar { display: flex; gap: 6px; padding: 10px; justify-content: center; align-items: center; flex-wrap: wrap; }
+  #bar button {
+    border: 1px solid #111; background: transparent; color: #111;
+    padding: 5px 12px; border-radius: 999px; font-size: 12px; letter-spacing: 0.05em; cursor: pointer;
+  }
+  #bar button.active { background: #111; color: #fff; }
+  #stage { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; }
+  #glc { width: 94%; max-height: 60vh; aspect-ratio: 4 / 1; display: block; }
+  #iconWrap { display: none; flex-direction: row; gap: 40px; align-items: center; }
+  #controls {
+    display: flex; gap: 14px; padding: 10px 16px 16px; justify-content: center; align-items: center; flex-wrap: wrap;
+    font-size: 12px; color: #444;
+  }
+  #controls input[type=range] { width: 110px; }
+  body.dark { background: #000; color: #eee; }
+  body.dark #bar button { border-color: #eee; color: #eee; }
+  body.dark #bar button.active { background: #eee; color: #000; }
+  body.dark #controls { color: #aaa; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <button data-mode="4" class="active">0 nested</button>
+  <button data-mode="0">1 topo</button>
+  <button data-mode="1">2 reveal</button>
+  <button data-mode="2">3 lines</button>
+  <button data-mode="3">4 moiré</button>
+  <button data-mode="icon">icon</button>
+  <button id="lockBtn">⟳ lock-in</button>
+  <button id="invert">◐</button>
+  <button id="export">export PNG</button>
+</div>
+<div id="stage">
+  <canvas id="glc"></canvas>
+  <div id="iconWrap">
+    <canvas id="icon512" width="512" height="512" style="width:256px;height:256px"></canvas>
+    <div style="display:flex;flex-direction:column;gap:18px;align-items:center">
+      <canvas id="icon180" width="180" height="180" style="width:90px;height:90px"></canvas>
+      <canvas id="icon120" width="120" height="120" style="width:60px;height:60px"></canvas>
+      <canvas id="icon60" width="60" height="60" style="width:30px;height:30px"></canvas>
+    </div>
+  </div>
+</div>
+<div id="controls">
+  <label>density <input id="density" type="range" min="0.5" max="3" step="0.05" value="1.4"></label>
+  <label>weight <input id="weight" type="range" min="0.4" max="2.5" step="0.05" value="0.8"></label>
+  <label>tracking <input id="tracking" type="range" min="0" max="0.5" step="0.01" value="0.16"></label>
+  <label>rings <input id="rings" type="range" min="3" max="12" step="1" value="6"></label>
+  <span id="hint"></span>
+</div>
+
+<script>
+'use strict';
+// ============================================================================
+// Logotype & icon studies. Four treatments of NEARFIELD in the interference
+// language (spec §14), plus the "earned bullseye" icon (the final-gong image).
+// The lock-in animation detunes the word and lets it resolve into legibility —
+// the piece's arc in two seconds.
+// ============================================================================
+
+const WORD = 'NEARFIELD';
+const WORD_LC = 'nearfield';
+const TW = 3072, TH = 768;   // text texture size (>= display width: no upscale fuzz)
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// --- text mask + signed distance field --------------------------------------
+
+function chamfer(mask, W, H, seedInside) {
+  const INF = 1e7;
+  const d = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) d[i] = (mask[i] === 1) === seedInside ? 0 : INF;
+  const D = 0.9619, DD = 1.3604; // optimal chamfer coefficients (less faceting)
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      let v = d[i];
+      if (x > 0) v = Math.min(v, d[i - 1] + D);
+      if (y > 0) {
+        v = Math.min(v, d[i - W] + D);
+        if (x > 0) v = Math.min(v, d[i - W - 1] + DD);
+        if (x < W - 1) v = Math.min(v, d[i - W + 1] + DD);
+      }
+      d[i] = v;
+    }
+  }
+  for (let y = H - 1; y >= 0; y--) {
+    for (let x = W - 1; x >= 0; x--) {
+      const i = y * W + x;
+      let v = d[i];
+      if (x < W - 1) v = Math.min(v, d[i + 1] + D);
+      if (y < H - 1) {
+        v = Math.min(v, d[i + W] + D);
+        if (x < W - 1) v = Math.min(v, d[i + W + 1] + DD);
+        if (x > 0) v = Math.min(v, d[i + W - 1] + DD);
+      }
+      d[i] = v;
+    }
+  }
+  return d;
+}
+
+const SDF_RANGE = 64; // tighter range -> 0.5px quantization steps (was ~1px: jaggies)
+
+function buildTextTexture(tracking, word, font, size) {
+  const c = document.createElement('canvas');
+  c.width = TW; c.height = TH;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.fillStyle = '#000'; g.fillRect(0, 0, TW, TH);
+  g.fillStyle = '#fff';
+  g.font = font.replace('SIZE', size);
+  g.textBaseline = 'middle';
+  const widths = [...word].map(ch => g.measureText(ch).width);
+  const trackPx = tracking * size;
+  const total = widths.reduce((a, b) => a + b, 0) + trackPx * (word.length - 1);
+  let x = (TW - total) / 2;
+  for (let i = 0; i < word.length; i++) {
+    g.fillText(word[i], x, TH / 2 + size * 0.03);
+    x += widths[i] + trackPx;
+  }
+  const img = g.getImageData(0, 0, TW, TH).data;
+  const mask = new Uint8Array(TW * TH);
+  for (let i = 0; i < TW * TH; i++) mask[i] = img[i * 4] > 127 ? 1 : 0;
+  const dOut = chamfer(mask, TW, TH, true);   // distance to text (0 inside)
+  const dIn = chamfer(mask, TW, TH, false);   // distance to background
+  // pack: R = mask, G = signed distance mapped (±SDF_RANGE px -> 0..255)
+  const px = new Uint8Array(TW * TH * 4);
+  for (let i = 0; i < TW * TH; i++) {
+    const sdf = dOut[i] - dIn[i]; // positive outside the word
+    px[i * 4] = mask[i] * 255;
+    px[i * 4 + 1] = Math.max(0, Math.min(255, Math.round((sdf / SDF_RANGE * 0.5 + 0.5) * 255)));
+    px[i * 4 + 3] = 255;
+  }
+  return px;
+}
+
+// --- WebGL --------------------------------------------------------------------
+
+const glc = document.getElementById('glc');
+const gl = glc.getContext('webgl', { antialias: true, preserveDrawingBuffer: true });
+gl.getExtension('OES_standard_derivatives');
+
+const FS = `
+#extension GL_OES_standard_derivatives : enable
+precision highp float;
+uniform vec2 res;
+uniform sampler2D tex;
+uniform float t, ink, mode, density, weight, lockE, sdfRange;
+float hair(float q, float w) {
+  float d = abs(fract(q) - 0.5) / (fwidth(q) + 1e-5);
+  return 1.0 - smoothstep(w, w + 1.0, d);
+}
+vec2 rot(vec2 p, float a){ float c=cos(a), s=sin(a); return vec2(c*p.x-s*p.y, s*p.x+c*p.y); }
+// hash-based value noise: organic, non-repeating (sin-product wobble reads
+// as a symmetric checkerboard — rejected)
+float vhash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(vhash(i), vhash(i + vec2(1, 0)), f.x),
+             mix(vhash(i + vec2(0, 1)), vhash(i + vec2(1, 1)), f.x), f.y);
+}
+void main(){
+  vec2 st = gl_FragCoord.xy / res;                 // 0..1 texture space
+  vec2 uv = (gl_FragCoord.xy - 0.5*res) / res.y;   // centered, y-normalized
+  vec4 s = texture2D(tex, vec2(st.x, 1.0 - st.y));
+  float mask = s.r;
+  float sdf = (s.g - 0.5) * 2.0 * sdfRange;        // px in texture space
+  float c = 0.0;
+
+  if (mode < 0.5) {
+    // 1 TOPO: iso-lines of the word's distance field — the word as terrain
+    float spacing = 26.0 / density;
+    float q = sdf / spacing + 0.06 * sin(t * 0.4 + sdf * 0.05);
+    c = hair(q, weight);
+    c = max(c, 1.0 - smoothstep(0.0, 2.2, abs(sdf))); // solid zero-contour stroke
+  } else if (mode < 1.5) {
+    // 2 REVEAL: Young-experiment fringes (hyperbolae of two off-frame sources);
+    // inside the word the fringe phase jumps half a period — the word exists
+    // only as a discontinuity in the interference. lockE < 1 drifts the
+    // fringes; the word is only readable when the field locks.
+    vec2 c1 = vec2(-1.5, -0.1), c2 = vec2(1.5, 0.12);
+    float spacing = 0.028 / density;
+    float drift = (1.0 - lockE) * (t * 0.9 + 2.0);
+    float q = (length(uv - c1) - length(uv - c2)) / spacing
+            + 0.5 * mask * lockE + drift;
+    c = hair(q, weight);
+  } else if (mode < 2.5) {
+    // 3 LINES: horizontal hairlines displaced where they cross the letterforms
+    float rows = 46.0 * density;
+    float amp = smoothstep(10.0, -6.0, sdf);       // 1 inside, fades outside
+    float wave = sin(st.x * 90.0 + t * 0.8) * 0.55 + sin(st.x * 41.0 - t * 0.5) * 0.45;
+    float y = st.y + amp * wave * (0.16 / density) * lockE;
+    c = hair(y * rows, weight);
+  } else if (mode < 3.5) {
+    // 4 MOIRE: two fine line screens; inside the word the second screen is
+    // rotated a hair differently — the word is a moire discontinuity
+    float spacing = 0.02 / density;
+    float a = 0.42;
+    float l1 = hair(rot(uv, a).y / spacing, weight);
+    float da = mix(0.012, 0.05 + 0.03 * sin(t * 0.6), 1.0 - lockE);
+    float a2 = a + da + 0.045 * mask;
+    float l2 = hair(rot(uv, a2).y / spacing, weight);
+    c = max(l1, l2) * 0.72;
+  } else {
+    // 0 NESTED: fat rounded lowercase glyphs drawn as a handful of wobbling
+    // contour strokes nesting inward — liquid topographic lettering. No
+    // radiating field: nothing exists beyond the outermost contour.
+    vec2 p = st * vec2(14.0, 3.5);
+    float wob = (vnoise(p + t * 0.03) * 2.0 - 1.0)
+              + 0.5 * (vnoise(rot(p * 2.3, 1.9) + vec2(37.2, 91.7) - t * 0.02) * 2.0 - 1.0);
+    float spacing = 27.0 / density;
+    float sd = sdf - 24.0 + wob * spacing * 0.4;    // fatten boundary outward 24px
+    float q = sd / spacing - 0.5;                   // lines at sd = k*spacing exactly
+    c = hair(q, weight * 2.2);
+    c *= step(sd, spacing * 0.25);                  // outermost ring is the boundary
+  }
+  float lum = mix(1.0 - c, c, ink);
+  gl_FragColor = vec4(vec3(lum), 1.0);
+}`;
+
+function compileProgram() {
+  const compile = (type, src) => {
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src); gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+    return sh;
+  };
+  const prog = gl.createProgram();
+  gl.attachShader(prog, compile(gl.VERTEX_SHADER, 'attribute vec2 p; void main(){ gl_Position=vec4(p,0.,1.); }'));
+  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  return prog;
+}
+const prog = compileProgram();
+const quad = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+
+const texture = gl.createTexture();      // caps, geometric (modes 0-3)
+const textureLC = gl.createTexture();    // lowercase, rounded, fat (nested mode)
+function uploadOne(tex, px) {
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, TW, TH, 0, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+}
+function uploadText() {
+  const tr = parseFloat(tracking.value);
+  uploadOne(texture, buildTextTexture(tr, WORD,
+    '500 SIZEpx Futura, "Avenir Next", Avenir, "Helvetica Neue", sans-serif', 315));
+  uploadOne(textureLC, buildTextTexture(tr * 0.3, WORD_LC,
+    '800 SIZEpx "Arial Rounded MT Bold", "SF Pro Rounded", "Nunito", sans-serif', 405));
+}
+
+// --- state / controls -----------------------------------------------------------
+
+let mode = '4';
+let dark = true;
+document.body.classList.add('dark');
+let lockAnim = { running: false, start: 0 };
+const density = document.getElementById('density');
+const weight = document.getElementById('weight');
+const tracking = document.getElementById('tracking');
+const rings = document.getElementById('rings');
+const hint = document.getElementById('hint');
+
+for (const b of document.querySelectorAll('#bar button[data-mode]')) {
+  b.onclick = () => {
+    mode = b.dataset.mode;
+    document.querySelectorAll('#bar button[data-mode]').forEach(x => x.classList.toggle('active', x === b));
+    glc.style.display = mode === 'icon' ? 'none' : 'block';
+    document.getElementById('iconWrap').style.display = mode === 'icon' ? 'flex' : 'none';
+    hint.textContent = mode === '1' || mode === '3' ? 'try ⟳ lock-in'
+      : mode === 'icon' ? 'the earned bullseye (final-gong image); weight + rings sliders apply' : '';
+    if (mode === 'icon') drawIcons();
+  };
+}
+document.getElementById('invert').onclick = () => {
+  dark = !dark;
+  document.body.classList.toggle('dark', dark);
+  if (mode === 'icon') drawIcons();
+};
+document.getElementById('lockBtn').onclick = () => { lockAnim = { running: true, start: performance.now() }; };
+tracking.oninput = () => uploadText();
+rings.oninput = () => { if (mode === 'icon') drawIcons(); };
+density.oninput = weight.oninput = () => { if (mode === 'icon') drawIcons(); };
+
+// lock-in envelope: detuned -> resolving (encounter attack) -> locked
+function lockValue(nowMs) {
+  if (!lockAnim.running) return 1;
+  const t = (nowMs - lockAnim.start) / 1000;
+  if (t < 0.8) return 0;
+  if (t < 4.5) return 1 - Math.exp(-(t - 0.8) / 0.9);
+  lockAnim.running = false;
+  return 1;
+}
+
+// --- icon: the earned bullseye ---------------------------------------------------
+
+function drawIconOn(c, n, lw, seed) {
+  const g = c.getContext('2d');
+  const S = c.width;
+  g.fillStyle = dark ? '#000' : '#fff';
+  g.fillRect(0, 0, S, S);
+  g.strokeStyle = dark ? '#eee' : '#111';
+  const rng = mulberry32(seed);
+  const phases = Array.from({ length: 2 }, () => rng() * Math.PI * 2);
+  for (let k = 1; k <= n; k++) {
+    const r0 = (S * 0.42) * Math.pow(k / n, 0.88); // slight outward compression, wave-like
+    g.lineWidth = Math.max(1, lw * (S / 512) * (1 - 0.35 * (k - 1) / n));
+    g.beginPath();
+    const SEG = 90;
+    for (let i = 0; i <= SEG; i++) {
+      const th = (i / SEG) * Math.PI * 2;
+      // fingerprint waver: each performance's icon minutely its own
+      const wav = 1 + 0.012 * Math.sin(3 * th + phases[0] + k * 0.7)
+                    + 0.008 * Math.sin(5 * th + phases[1] - k * 0.4);
+      const r = r0 * wav;
+      const x = S / 2 + r * Math.cos(th), y = S / 2 + r * Math.sin(th);
+      i === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
+    }
+    g.closePath();
+    g.stroke();
+  }
+  g.fillStyle = dark ? '#eee' : '#111';
+  g.beginPath();
+  g.arc(S / 2, S / 2, Math.max(1.5, S * 0.014), 0, Math.PI * 2);
+  g.fill();
+}
+
+function drawIcons() {
+  const n = parseInt(rings.value, 10);
+  const lw = 5.5 * parseFloat(weight.value);
+  for (const id of ['icon512', 'icon180', 'icon120', 'icon60']) {
+    drawIconOn(document.getElementById(id), n, lw, 20260705);
+  }
+}
+
+// --- render loop ------------------------------------------------------------------
+
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const r = glc.getBoundingClientRect();
+  if (r.width > 0) { glc.width = r.width * dpr; glc.height = r.height * dpr; }
+}
+addEventListener('resize', resize);
+
+function frame(ms) {
+  requestAnimationFrame(frame);
+  if (mode === 'icon') return;
+  if (glc.width === 0) resize();
+  gl.viewport(0, 0, glc.width, glc.height);
+  gl.useProgram(prog);
+  const loc = n => gl.getUniformLocation(prog, n);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, mode === '4' ? textureLC : texture);
+  gl.uniform1i(loc('tex'), 0);
+  gl.uniform2f(loc('res'), glc.width, glc.height);
+  gl.uniform1f(loc('t'), ms / 1000);
+  gl.uniform1f(loc('ink'), dark ? 1 : 0);
+  gl.uniform1f(loc('mode'), parseFloat(mode));
+  gl.uniform1f(loc('density'), parseFloat(density.value));
+  gl.uniform1f(loc('weight'), parseFloat(weight.value));
+  gl.uniform1f(loc('lockE'), lockValue(ms));
+  gl.uniform1f(loc('sdfRange'), SDF_RANGE);
+  const p = gl.getAttribLocation(prog, 'p');
+  gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+  gl.enableVertexAttribArray(p);
+  gl.vertexAttribPointer(p, 2, gl.FLOAT, false, 0, 0);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+// --- export ------------------------------------------------------------------------
+
+document.getElementById('export').onclick = () => {
+  const src = mode === 'icon' ? document.getElementById('icon512') : glc;
+  const a = document.createElement('a');
+  a.download = mode === 'icon' ? 'nearfield-icon.png'
+    : `nearfield-logotype-${['topo', 'reveal', 'lines', 'moire'][+mode]}.png`;
+  a.href = src.toDataURL('image/png');
+  a.click();
+};
+
+// --- boot ---------------------------------------------------------------------------
+
+document.fonts.ready.then(() => {
+  uploadText();
+  resize();
+  requestAnimationFrame(frame);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,1751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Nearfield — Leaves in the Wind (simulator)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #101014; color: #d8d8de;
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 16px;
+    padding: 10px 16px 8px; border-bottom: 1px solid #26262e;
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: 0.04em; }
+  header .sub { color: #8a8a96; font-size: 12px; }
+  #stats { margin-left: auto; color: #9aa0b4; font-variant-numeric: tabular-nums; font-size: 12px; }
+  #main { display: flex; flex: 1; min-height: 0; }
+  #stage { flex: 1; position: relative; min-width: 0; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
+  #panel {
+    width: 340px; overflow-y: auto; border-left: 1px solid #26262e;
+    padding: 12px 14px 40px; background: #14141a;
+  }
+  fieldset {
+    border: 1px solid #26262e; border-radius: 8px; margin: 0 0 12px; padding: 8px 10px 10px;
+  }
+  legend { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #8a8a96; padding: 0 6px; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+  .row label { flex: 0 0 148px; color: #b8b8c2; font-size: 12px; }
+  .row input[type=range] { flex: 1; min-width: 0; }
+  .row output { flex: 0 0 52px; text-align: right; color: #e8e8ee; font-variant-numeric: tabular-nums; font-size: 12px; }
+  .row select, .row button { background: #1e1e26; color: #d8d8de; border: 1px solid #33333e; border-radius: 6px; padding: 4px 8px; }
+  button { cursor: pointer; }
+  button:hover { border-color: #5a5aff; }
+  .btnrow { display: flex; gap: 8px; margin: 6px 0 2px; flex-wrap: wrap; }
+  .toggle { accent-color: #6a6aff; }
+  #overlay {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(10,10,14,0.82); z-index: 5; flex-direction: column; gap: 14px;
+  }
+  #overlay button {
+    font-size: 20px; padding: 18px 46px; border-radius: 999px;
+    background: #1c1c2a; border: 1px solid #5a5aff; color: #fff; letter-spacing: 0.12em;
+  }
+  #overlay .hint { color: #9aa0b4; max-width: 420px; text-align: center; font-size: 13px; }
+  .sceneActive { border-color: #6a6aff !important; }
+  #phoneView {
+    position: absolute; left: 16px; top: 16px; z-index: 6; display: none;
+    width: 240px; background: #fff; border: 1px solid #33333e; border-radius: 18px;
+    overflow: hidden; box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  }
+  #phoneView.dark { background: #000; }
+  #phoneHead {
+    display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+    font-size: 11px; letter-spacing: 0.06em; color: #555; background: transparent;
+    position: absolute; top: 0; left: 0; right: 0; z-index: 2;
+  }
+  #phoneView.dark #phoneHead { color: #999; }
+  #phoneHead button {
+    margin-left: auto; background: none; border: 1px solid currentColor; color: inherit;
+    border-radius: 999px; font-size: 11px; padding: 1px 8px;
+  }
+  #phoneCanvas { position: relative; inset: auto; display: block; width: 240px; height: 480px; }
+
+  /* compact player mode: phones (or ?player) get the field + a transport bar,
+     no tuning chrome */
+  #mobilebar { display: none; }
+  body.player #panel { display: none; }
+  body.player #stats { display: none; }
+  body.player header .sub { display: none; }
+  body.player #mobilebar {
+    display: flex; align-items: center; gap: 12px;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 7;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+    background: rgba(20,20,26,0.92); border-top: 1px solid #26262e;
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  }
+  #mobilebar button {
+    flex: 0 0 auto; background: #1c1c2a; border: 1px solid #5a5aff; color: #fff;
+    border-radius: 999px; width: 48px; height: 48px; font-size: 15px; padding: 0;
+  }
+  #mobilebar #mPlay { width: 60px; height: 60px; font-size: 20px; }
+  #mobilebar #mScrub { flex: 1; min-width: 0; accent-color: #6a6aff; height: 34px; }
+  #mobilebar #mPos {
+    flex: 0 0 auto; width: 44px; text-align: right;
+    font-variant-numeric: tabular-nums; color: #b8b8c2; font-size: 13px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>NEARFIELD</h1>
+  <span class="sub">Leaves in the Wind — ensemble simulator</span>
+  <span id="stats">—</span>
+</header>
+<div id="main">
+  <div id="stage">
+    <canvas id="room"></canvas>
+    <div id="phoneView">
+      <div id="phoneHead">
+        <span id="phoneLabel">—</span>
+        <button id="phoneInvert">◐</button>
+        <button id="phoneClose">✕</button>
+      </div>
+      <canvas id="phoneCanvas"></canvas>
+    </div>
+    <div id="overlay">
+      <button id="startBtn">BEGIN</button>
+      <div class="hint">Sound starts on tap (browser rule). Drag dots to move people;
+      drag the ◎ to move your ear through the room. Everything on the right tunes the
+      piece live and exports as <code>params.json</code>.</div>
+    </div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="mobilebar">
+  <button id="mRestart" aria-label="restart">⏮</button>
+  <button id="mPlay" aria-label="play/pause">▶</button>
+  <input id="mScrub" type="range" min="0" max="960" step="5" value="0" aria-label="scrub">
+  <span id="mPos">0:00</span>
+</div>
+
+<script id="nearfield-core">
+// ============================================================================
+// Nearfield core — pure logic, no DOM/AudioContext. This block is extracted
+// and unit-tested headlessly by tests/core.test.mjs, and is the reference
+// implementation of spec §5 (docs/superpowers/specs/2026-07-04-crowd-ensemble-design.md).
+// The Swift RewardModel must reproduce these trajectories (spec §9).
+// ============================================================================
+
+const DEFAULT_SCALE = {
+  version: 1,
+  base_freq_hz: 220.0,
+  spectrum: { ratios: [1.0, 2.07, 3.2, 4.4], amps: [1.0, 0.5, 0.3, 0.2] },
+  pseudo_octave_ratio: 2.07,
+  scale_cents: [0.0, 551.2, 754.0, 957.5],
+  dip_intervals_cents: [0.0, 551.2, 754.0, 957.5, 1259.6],
+  registers: { anchor: -1, voice: 0, shimmer: 1 },
+};
+
+const DEFAULT_PARAMS = {
+  version: 1,
+  sensing: {
+    tick_hz: 5,
+    rssi_ema_tau_s: 3.0,
+    rssi_near_enter_dbm: -50,
+    rssi_near_exit_dbm: -56,
+    rssi_mid_enter_dbm: -62,
+    rssi_mid_exit_dbm: -66,
+    far_timeout_s: 10,
+    encounter_on_s: 2.0,
+    encounter_off_s: 4.0,
+    tx_offset_by_model: {},
+  },
+  wind: {
+    alpha_motion_per_s: 0.15,
+    alpha_novelty_per_s: 0.3,
+    tau_wind_s: 30,
+    motion_accel_max_g: 0.5,
+    motion_ema_tau_s: 1.0,
+    novelty_window_s: 60,
+  },
+  encounter: {
+    tau_attack_s: 6,
+    tau_release_s: 8,
+    tau_familiarity_s: 25,
+    tau_familiarity_release_s: 45,
+  },
+  bloom: {
+    beta_familiarity: 0.7,
+    gain_base: 0.4,
+    gain_wind: 0.6,
+    partial_thresholds: [0.15, 0.4, 0.65],
+    threshold_width: 0.2,
+    gain_attack_s: 0.5,
+    gain_release_s: 3.0,
+  },
+  slew: {
+    cents_start: 10,
+    cents_per_s_max: 6,
+    dip_max_distance_cents: 60,
+  },
+  shimmer_am: {
+    rate_base_hz: 0.1,
+    rate_motion_hz: 2.5,
+    depth_wind: 0.25,
+  },
+  breath: {
+    period_s: 60,
+    ensemble_depth: 0.08,
+  },
+  roles: {
+    anchor:  { share_one_in: 8, max_partials: 2, bloom_scale: 0.0, motion_gate: false, slew: false, base_gain: 1.0, am_depth_scale: 0.5 },
+    voice:   { max_partials: 3, bloom_scale: 1.0, motion_gate: false, slew: true,  base_gain: 1.0, am_depth_scale: 1.0 },
+    shimmer: { share_one_in: 6, max_partials: 4, bloom_scale: 1.0, motion_gate: true,  slew: true,  base_gain: 0.5, am_depth_scale: 1.5 },
+  },
+  timbre: {
+    loudness_ref_hz: 300,
+    loudness_exponent: 0.5,
+    shelf_freq_hz: 1800,
+    shelf_gain_db: -7,
+    lowpass_hz: 4200,
+    reverb_wet: 0.3,
+    reverb_decay_s: 5.5,
+    reverb_damp_hz: 3000,
+  },
+  drift: {
+    fingerprint_max_cents: 12,
+    fingerprint_tau_s: 90,
+    fingerprint_amplitude: 1.0,
+    global_stretch_from: 2.04,
+    global_stretch_to: 2.1,
+    global_stretch_end_s: 840,
+    role_multipliers: { anchor: 0.3, voice: 1.0, shimmer: 1.3 },
+    ombak_enabled: true,
+    ombak_ref_hz: 300,
+  },
+  ble_model: {
+    p0_dbm: -45,
+    path_loss_n: 2.2,
+    shadow_sigma_db: 6,
+    body_block_db: -10,
+    body_block_rate_per_min: 2,
+    body_block_dur_s: [2, 8],
+  },
+};
+
+// generated from config/score.json + config/scale_drift.json (embedded fallback for file://)
+const DEFAULT_SCORE = {"version": 1, "duration_s": 960, "keyframes": [{"at_s": 0, "label": "buka", "patch": {"bloom_multiplier": 0.0, "master_multiplier": 1.0, "drift.fingerprint_amplitude": 1.0, "breath.period_s": 60}}, {"at_s": 120, "label": "cycle-i", "patch": {"bloom_multiplier": 1.0}}, {"at_s": 420, "label": "turning", "patch": {"breath.period_s": 60, "encounter.tau_attack_s": 6, "wind.alpha_novelty_per_s": 0.3, "shimmer_am.depth_wind": 0.25}}, {"at_s": 600, "label": "cycle-ii", "patch": {"breath.period_s": 40, "encounter.tau_attack_s": 4, "wind.alpha_novelty_per_s": 0.45, "shimmer_am.depth_wind": 0.35, "bloom_multiplier": 1.0}}, {"at_s": 840, "label": "final-gong", "patch": {"bloom_multiplier": 1.0, "master_multiplier": 1.0, "drift.fingerprint_amplitude": 1.0}}, {"at_s": 960, "label": "end", "patch": {"bloom_multiplier": 0.0, "master_multiplier": 0.0, "drift.fingerprint_amplitude": 0.0}}], "events": [{"at_s": 120, "type": "section_gong"}, {"at_s": 420, "type": "section_gong"}, {"at_s": 600, "type": "section_gong"}, {"at_s": 840, "type": "final_gong"}]};
+const DEFAULT_SCALE_DRIFT = {"version": 1, "base_freq_hz": 220.0, "rows": [{"stretch": 2.04, "spectrum": {"ratios": [1.0, 2.04, 3.153623, 4.336232], "amps": [1.0, 0.5, 0.3, 0.2]}, "scale_cents": [0.0, 551.2, 754.0, 948.5], "dip_intervals_cents": [0.0, 551.2, 754.0, 948.5, 1234.3]}, {"stretch": 2.044286, "spectrum": {"ratios": [1.0, 2.044286, 3.160248, 4.345342], "amps": [1.0, 0.5, 0.3, 0.2]}, "scale_cents": [0.0, 551.3, 754.1, 949.7], "dip_intervals_cents": [0.0, 551.3, 754.1, 949.7, 1237.9]}, {"stretch": 2.048571, "spectrum": {"ratios": [1.0, 2.048571, 3.166874, 4.354451], "amps": [1.0, 0.5, 0.3, 0.2]}, "scale_cents": [0.0, 551.4, 754.1, 951.3], "dip_intervals_cents": [0.0, 551.4, 754.1, 951.3, 1241.5]}, {"stretch": 2.052857, "spectrum": {"ratios": [1.0, 2.052857, 3.173499, 4.363561], "amps": [1.0, 0.5, 0.3, 0.2]}, "scale_cents": [0.0, 551.4, 754.1, 952.5], "dip_intervals_cents": [0.0, 551.4, 754.1, 952.5, 1245.2]}, {"stretch": 2.057143, "spectrum": {"ratios": [1.0, 2.057143, 3.180124, 4.372671], "amps": [1.0, 0.5, 0.3, 0.2]}, "scale_cents": [0.0, 551.5, 754.1, 953.7], "dip_intervals_cents": [0.0, 551.5, 754.1, 953.7, 1248.8]}, {"stretch": 2.061429, "spectrum": {"ratios": [1.0, 2.061429, 3.186749, 4.381781], "amps": [1.0, 0.5, 0.3, 0.2]}, "scale_cents": [0.0, 551.2, 754.1, 954.9], "dip_intervals_cents": [0.0, 551.2, 754.1, 954.9, 1252.4]}, {"stretch": 2.065714, "spectrum": {"ratios": [1.0, 2.065714, 3.193375, 4.39089], "amps": [1.0, 0.5, 0.3, 0.2]}, "scale_cents": [0.0, 551.2, 754.1, 956.3], "dip_intervals_cents": [0.0, 551.2, 754.1, 956.3, 1256.0]}, {"stretch": 2.07, "spectrum": {"ratios": [1.0, 2.07, 3.2, 4.4], "amps": [1.0, 0.5, 0.3, 0.2]}, "scale_cents": [0.0, 551.2, 754.0, 957.5], "dip_intervals_cents": [0.0, 551.2, 754.0, 957.5, 1259.6]}, {"stretch": 2.074286, "spectrum": {"ratios": [1.0, 2.074286, 3.206625, 4.40911], "amps": [1.0, 0.5, 0.3, 0.2]}, "scale_cents": [0.0, 551.2, 754.3, 958.6], "dip_intervals_cents": [0.0, 551.2, 754.3, 958.6, 1263.1]}, {"stretch": 2.078571, "spectrum": {"ratios": [1.0, 2.078571, 3.213251, 4.418219], "amps": [1.0, 0.5, 0.3, 0.2]}, "scale_cents": [0.0, 551.5, 754.2, 960.1], "dip_intervals_cents": [0.0, 551.5, 754.2, 960.1, 1266.7]}, {"stretch": 2.082857, "spectrum": {"ratios": [1.0, 2.082857, 3.219876, 4.427329], "amps": [1.0, 0.5, 0.3, 0.2]}, "scale_cents": [0.0, 551.4, 754.1, 961.2], "dip_intervals_cents": [0.0, 551.4, 754.1, 961.2, 1270.3]}, {"stretch": 2.087143, "spectrum": {"ratios": [1.0, 2.087143, 3.226501, 4.436439], "amps": [1.0, 0.5, 0.3, 0.2]}, "scale_cents": [0.0, 551.4, 754.3, 962.3], "dip_intervals_cents": [0.0, 551.4, 754.3, 962.3, 1273.8]}, {"stretch": 2.091429, "spectrum": {"ratios": [1.0, 2.091429, 3.233126, 4.445549], "amps": [1.0, 0.5, 0.3, 0.2]}, "scale_cents": [0.0, 551.3, 754.2, 963.7], "dip_intervals_cents": [0.0, 551.3, 754.2, 963.7, 1277.4]}, {"stretch": 2.095714, "spectrum": {"ratios": [1.0, 2.095714, 3.239752, 4.454658], "amps": [1.0, 0.5, 0.3, 0.2]}, "scale_cents": [0.0, 551.3, 754.0, 964.8], "dip_intervals_cents": [0.0, 551.3, 754.0, 964.8, 1280.9]}, {"stretch": 2.1, "spectrum": {"ratios": [1.0, 2.1, 3.246377, 4.463768], "amps": [1.0, 0.5, 0.3, 0.2]}, "scale_cents": [0.0, 551.2, 754.2, 966.2], "dip_intervals_cents": [0.0, 551.2, 754.2, 966.2, 1284.5]}]};
+
+// --- small utilities --------------------------------------------------------
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function gaussian(rng) {
+  // Box-Muller
+  let u = 0, v = 0;
+  while (u === 0) u = rng();
+  while (v === 0) v = rng();
+  return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+}
+
+function emaAlpha(dt, tau) { return 1 - Math.exp(-dt / tau); }
+
+function clamp(x, lo, hi) { return x < lo ? lo : x > hi ? hi : x; }
+
+function smoothstep(x) { const t = clamp(x, 0, 1); return t * t * (3 - 2 * t); }
+
+function centsBetween(f1, f2) { return 1200 * Math.log2(f2 / f1); }
+
+// Fold an interval into [0, pseudoOctaveCents).
+function foldCents(c, pseudoOctaveCents) {
+  return ((c % pseudoOctaveCents) + pseudoOctaveCents) % pseudoOctaveCents;
+}
+
+// Nearest dip to a folded interval; the wrap makes 1259.6 equivalent to 0.
+function nearestDip(intervalCents, scale) {
+  const P = scale.dip_intervals_cents[scale.dip_intervals_cents.length - 1];
+  const folded = foldCents(intervalCents, P);
+  let best = null, bestDelta = Infinity;
+  for (const dip of scale.dip_intervals_cents) {
+    for (const cand of [dip, dip - P]) { // wrap-aware
+      const delta = cand - folded;
+      if (Math.abs(delta) < Math.abs(bestDelta)) { bestDelta = delta; best = dip; }
+    }
+  }
+  return { dip: best, delta: bestDelta };
+}
+
+function fnv1a(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+// --- tuning drift (spec §13) --------------------------------------------------
+
+// Ombak mode (spec §13.3): Balinese paired tuning sets a beat RATE (Hz), not an
+// interval (cents). Beat rate ~ f * cents, so cents scale by ref/f to keep the
+// wave even across registers.
+function ombakScale(fHz, params) {
+  if (!params.drift.ombak_enabled) return 1;
+  return clamp(params.drift.ombak_ref_hz / fHz, 0.25, 3);
+}
+
+// Bounded mean-reverting (OU) wander of a phone's realized pitch, in cents.
+// Seeded deterministically per phone per performance; amplitude scales the
+// output without disturbing the walk (final-gong convergence).
+class FingerprintDrift {
+  constructor(seed, params, roleMult = 1, freqHz = 300) {
+    this.rng = mulberry32(seed);
+    this.params = params;
+    this.p = params.drift;
+    this.roleMult = roleMult;
+    this.freqHz = freqHz;
+    this.c = 0;
+  }
+  update(dt, amplitude = 1) {
+    const max = this.p.fingerprint_max_cents * this.roleMult * ombakScale(this.freqHz, this.params);
+    const tau = this.p.fingerprint_tau_s;
+    const sigma = (max / 3) * Math.sqrt(2 / tau); // stationary std ~ max/3
+    this.c += (-this.c / tau) * dt + sigma * Math.sqrt(dt) * gaussian(this.rng);
+    this.c = clamp(this.c, -max, max);
+    return this.c * amplitude;
+  }
+}
+
+// Interpolate the drifting scale between precomputed sweep rows (spec §13.1).
+function interpolateScale(drift, stretch) {
+  const rows = drift.rows;
+  if (stretch <= rows[0].stretch) return rows[0];
+  for (let i = 1; i < rows.length; i++) {
+    if (stretch <= rows[i].stretch) {
+      const a = rows[i - 1], b = rows[i];
+      const f = (stretch - a.stretch) / (b.stretch - a.stretch);
+      const lerpArr = (x, y) => x.map((v, k) => v + (y[k] - v) * f);
+      return {
+        stretch,
+        spectrum: { ratios: lerpArr(a.spectrum.ratios, b.spectrum.ratios), amps: a.spectrum.amps },
+        scale_cents: lerpArr(a.scale_cents, b.scale_cents),
+        dip_intervals_cents: lerpArr(a.dip_intervals_cents, b.dip_intervals_cents),
+      };
+    }
+  }
+  return rows[rows.length - 1];
+}
+
+// --- the score (spec §12) ------------------------------------------------------
+
+// Keyframe timeline: each path's mentions form a piecewise-linear curve; before
+// the first mention a path holds that first value, after the last it holds the
+// last. Events fire once, in (prevT, t]. seek() moves without firing.
+class ScoreState {
+  constructor(score, params) {
+    this.score = score;
+    this.params = params;
+    this.curves = new Map();
+    for (const kf of score.keyframes) {
+      for (const [path, v] of Object.entries(kf.patch)) {
+        if (!this.curves.has(path)) this.curves.set(path, []);
+        this.curves.get(path).push([kf.at_s, v]);
+      }
+    }
+    for (const pts of this.curves.values()) pts.sort((a, b) => a[0] - b[0]);
+    this.eventList = [...score.events].sort((a, b) => a.at_s - b.at_s);
+    this.prevT = -1;
+  }
+  valueAt(path, t) {
+    const pts = this.curves.get(path);
+    if (!pts) return undefined;
+    if (t <= pts[0][0]) return pts[0][1];
+    for (let i = 1; i < pts.length; i++) {
+      if (t <= pts[i][0]) {
+        const [t0, v0] = pts[i - 1], [t1, v1] = pts[i];
+        return v0 + (v1 - v0) * (t - t0) / (t1 - t0);
+      }
+    }
+    return pts[pts.length - 1][1];
+  }
+  labelAt(t) {
+    let label = this.score.keyframes[0].label;
+    for (const kf of this.score.keyframes) if (t >= kf.at_s) label = kf.label;
+    return label;
+  }
+  stretchAt(t) {
+    const d = this.params.drift;
+    const f = clamp(t / d.global_stretch_end_s, 0, 1);
+    return d.global_stretch_from + (d.global_stretch_to - d.global_stretch_from) * f;
+  }
+  seek(t) { this.prevT = t; }
+  tick(t) {
+    const events = this.eventList.filter(e => e.at_s > this.prevT && e.at_s <= t);
+    this.prevT = t;
+    const patches = new Map();
+    for (const path of this.curves.keys()) patches.set(path, this.valueAt(path, t));
+    return {
+      label: this.labelAt(t), patches, events,
+      bloomMultiplier: this.valueAt('bloom_multiplier', t) ?? 1,
+      masterMultiplier: this.valueAt('master_multiplier', t) ?? 1,
+      fingerprintAmplitude: this.valueAt('drift.fingerprint_amplitude', t) ?? 1,
+      stretch: this.stretchAt(t),
+    };
+  }
+}
+
+// --- assignment (spec §6.1) -------------------------------------------------
+
+function pitchHzFor(scale, degreeIndex, register) {
+  return scale.base_freq_hz *
+    Math.pow(scale.pseudo_octave_ratio, register) *
+    Math.pow(2, scale.scale_cents[degreeIndex] / 1200);
+}
+
+function assignRoles(n, scale, params) {
+  const out = [];
+  let anchors = 0, shimmers = 0;
+  const anchorEvery = params.roles.anchor.share_one_in;
+  const shimmerEvery = params.roles.shimmer.share_one_in;
+  for (let i = 0; i < n; i++) {
+    let role = 'voice';
+    if (anchors < Math.ceil((i + 1) / anchorEvery)) { role = 'anchor'; anchors++; }
+    else if (shimmers < Math.ceil((i + 1) / shimmerEvery)) { role = 'shimmer'; shimmers++; }
+    const degreeIndex = i % scale.scale_cents.length;
+    const register = scale.registers[role];
+    out.push({ id: i, role, degreeIndex, register,
+      pitchHz: pitchHzFor(scale, degreeIndex, register) });
+  }
+  return out;
+}
+
+// --- BLE simulation (spec §7.3): ground-truth distance -> noisy RSSI --------
+
+class PairRadio {
+  constructor(params, rng) {
+    this.p = params.ble_model;
+    this.rng = rng;
+    this.blockRemaining = 0;
+  }
+  update(dt, distanceM) {
+    const p = this.p;
+    // random body-block events (Poisson-ish)
+    if (this.blockRemaining > 0) {
+      this.blockRemaining -= dt;
+    } else if (this.rng() < (p.body_block_rate_per_min / 60) * dt) {
+      const [lo, hi] = p.body_block_dur_s;
+      this.blockRemaining = lo + (hi - lo) * this.rng();
+    }
+    const d = Math.max(distanceM, 0.1);
+    let rssi = p.p0_dbm - 10 * p.path_loss_n * Math.log10(d);
+    rssi += gaussian(this.rng) * p.shadow_sigma_db;
+    if (this.blockRemaining > 0) rssi += p.body_block_db;
+    return rssi;
+  }
+}
+
+// --- sensing pipeline (spec §5.1): EMA -> hysteresis buckets -> encounters --
+
+class PairSensor {
+  constructor(params) {
+    this.p = params.sensing;
+    this.smoothed = null;
+    this.bucket = 'far';
+    this.sinceHeard = 0;
+    this.nearTime = 0;
+    this.awayTime = 0;
+    this.encounterActive = false;
+  }
+  update(dt, rawRssi) {
+    const p = this.p;
+    if (rawRssi === null || rawRssi === undefined) {
+      this.sinceHeard += dt;
+      if (this.sinceHeard > p.far_timeout_s) this.bucket = 'far';
+    } else {
+      this.sinceHeard = 0;
+      if (this.smoothed === null) this.smoothed = rawRssi;
+      else this.smoothed += (rawRssi - this.smoothed) * emaAlpha(dt, p.rssi_ema_tau_s);
+      const s = this.smoothed;
+      if (this.bucket === 'near') {
+        if (s < p.rssi_near_exit_dbm) this.bucket = s < p.rssi_mid_exit_dbm ? 'far' : 'mid';
+      } else if (this.bucket === 'mid') {
+        if (s >= p.rssi_near_enter_dbm) this.bucket = 'near';
+        else if (s < p.rssi_mid_exit_dbm) this.bucket = 'far';
+      } else {
+        if (s >= p.rssi_near_enter_dbm) this.bucket = 'near';
+        else if (s >= p.rssi_mid_enter_dbm) this.bucket = 'mid';
+      }
+    }
+    // encounter debounce
+    if (!this.encounterActive) {
+      this.nearTime = this.bucket === 'near' ? this.nearTime + dt : 0;
+      if (this.nearTime >= p.encounter_on_s) { this.encounterActive = true; this.awayTime = 0; }
+    } else {
+      this.awayTime = this.bucket !== 'near' ? this.awayTime + dt : 0;
+      if (this.awayTime >= p.encounter_off_s) { this.encounterActive = false; this.nearTime = 0; }
+    }
+    return { bucket: this.bucket, encounterActive: this.encounterActive };
+  }
+}
+
+// --- reward model (spec §5.2-§5.4) ------------------------------------------
+
+class RewardState {
+  constructor(me, params, scale) {
+    this.me = me;             // {id, role, pitchHz}
+    this.params = params;
+    this.scale = scale;
+    this.t = 0;
+    this.W = 0;
+    this.E = new Map();       // peerId -> envelope
+    this.F = new Map();       // peerId -> familiarity
+    this.contacts = new Map();// peerId -> {inContact, novel, contactStart, lastContactEnd}
+    this.partialGainsSm = [1, 0, 0, 0]; // smoothed output gains (partial 1 always on)
+    this.detuneOut = 0;
+  }
+
+  update(dt, inputs) {
+    const { encounters, buckets, motion, peerPitches } = inputs;
+    const p = this.params;
+    const roleP = p.roles[this.me.role];
+    this.t += dt;
+
+    // novelty (spec §5.1): a significant contact is novel if the previous
+    // contact with that peer ended more than novelty_window_s ago (or never
+    // existed); the flag persists for the first novelty_window_s of contact.
+    let significant = 0, novel = 0;
+    for (const [id, bucket] of buckets) {
+      const sig = bucket === 'near' || bucket === 'mid';
+      let c = this.contacts.get(id);
+      if (sig) {
+        if (!c || !c.inContact) {
+          const fresh = !c || (this.t - c.lastContactEnd) > p.wind.novelty_window_s;
+          c = { inContact: true, novel: fresh, contactStart: this.t,
+                lastContactEnd: c ? c.lastContactEnd : -Infinity };
+          this.contacts.set(id, c);
+        }
+        if (c.novel && this.t - c.contactStart > p.wind.novelty_window_s) c.novel = false;
+        significant++;
+        if (c.novel) novel++;
+      } else if (c && c.inContact) {
+        c.inContact = false;
+        c.lastContactEnd = this.t;
+      }
+    }
+    const novelty = significant > 0 ? novel / significant : 0;
+
+    // wind reservoir
+    this.W = clamp(
+      this.W + (p.wind.alpha_motion_per_s * motion +
+                p.wind.alpha_novelty_per_s * novelty -
+                this.W / p.wind.tau_wind_s) * dt,
+      0, 1);
+
+    // encounter envelopes + familiarity
+    for (const [id, active] of encounters) {
+      const e = this.E.get(id) ?? 0;
+      const f = this.F.get(id) ?? 0;
+      if (active) {
+        this.E.set(id, e + (1 - e) * emaAlpha(dt, p.encounter.tau_attack_s));
+        this.F.set(id, f + (1 - f) * emaAlpha(dt, p.encounter.tau_familiarity_s));
+      } else {
+        this.E.set(id, e * (1 - emaAlpha(dt, p.encounter.tau_release_s)));
+        this.F.set(id, f * (1 - emaAlpha(dt, p.encounter.tau_familiarity_release_s)));
+      }
+    }
+
+    // focus peer and bloom. Focus is sticky: a challenger must beat the
+    // incumbent's score by 15% to take over — prevents tick-to-tick flapping
+    // between near-equal peers (which jerks bloom, detune, and visuals).
+    const beta = p.bloom.beta_familiarity;
+    const score = id => (this.E.get(id) ?? 0) * (1 - beta * (this.F.get(id) ?? 0));
+    let bestId = null, bestScore = 0;
+    for (const [id] of this.E) {
+      const s = score(id);
+      if (s > bestScore) { bestScore = s; bestId = id; }
+    }
+    let focusId = this.focusId ?? null;
+    const incumbent = focusId !== null ? score(focusId) : 0;
+    if (bestId !== focusId && bestScore > incumbent * 1.15) focusId = bestId;
+    if (focusId !== null && score(focusId) < 0.005) focusId = null;
+    this.focusId = focusId;
+    const focusScore = focusId !== null ? score(focusId) : 0;
+    const Braw = focusScore * (p.bloom.gain_base + p.bloom.gain_wind * this.W);
+    const B = Braw * roleP.bloom_scale * (inputs.bloomMultiplier ?? 1);
+
+    // partial gains (partial 1 always on; roles cap partial count, spec §5.4)
+    const amps = this.scale.spectrum.amps;
+    const gate = roleP.motion_gate ? clamp(2 * motion, 0, 1) : 1;
+    for (let k = 2; k <= 4; k++) {
+      let target = 0;
+      if (k <= roleP.max_partials) {
+        const th = p.bloom.partial_thresholds[k - 2];
+        target = amps[k - 1] * smoothstep((B - th) / p.bloom.threshold_width) * gate;
+      }
+      const g = this.partialGainsSm[k - 1];
+      const tau = target > g ? p.bloom.gain_attack_s : p.bloom.gain_release_s;
+      this.partialGainsSm[k - 1] = g + (target - g) * emaAlpha(dt, tau);
+    }
+
+    // resolution slew (spec §5.3): detune from assigned pitch, in cents.
+    // Nominal on-dip pairs (the common case by construction of the scale) start
+    // c_start off and slew in as E rises; off-dip nominal within the window also
+    // absorbs half the dip correction. Direction is id-asymmetric so the two
+    // phones start ~2*c_start apart.
+    let detuneTarget = 0;
+    if (roleP.slew && focusId !== null && peerPitches.has(focusId)) {
+      const nominal = centsBetween(this.me.pitchHz, peerPitches.get(focusId));
+      const { delta } = nearestDip(nominal, this.scale);
+      if (Math.abs(delta) <= p.slew.dip_max_distance_cents) {
+        const e = this.E.get(focusId) ?? 0;
+        const dir = this.me.id < focusId ? 1 : -1;
+        // ombak (spec §13.3): offset in cents shrinks up-register so the
+        // beating rate in Hz stays even; the dip correction is unscaled
+        detuneTarget = dir * p.slew.cents_start * ombakScale(this.me.pitchHz, this.params) * (1 - e)
+          + 0.5 * delta * e;
+      }
+    }
+    const maxStep = p.slew.cents_per_s_max * dt;
+    this.detuneOut += clamp(detuneTarget - this.detuneOut, -maxStep, maxStep);
+
+    // shimmer AM
+    const amRate = p.shimmer_am.rate_base_hz + p.shimmer_am.rate_motion_hz * motion;
+    const amDepth = p.shimmer_am.depth_wind * this.W * roleP.am_depth_scale;
+
+    // prune dead envelopes
+    for (const [id, e] of this.E) {
+      if (e < 0.001 && !(encounters.get(id))) { this.E.delete(id); }
+    }
+
+    return {
+      W: this.W, B, novelty, focusId,
+      E: focusId !== null ? (this.E.get(focusId) ?? 0) : 0,
+      F: focusId !== null ? (this.F.get(focusId) ?? 0) : 0,
+      partialGains: [...this.partialGainsSm],
+      detuneCents: this.detuneOut,
+      amRate, amDepth,
+    };
+  }
+}
+
+// breath phase multiplier (spec §5.3); phase phi in radians
+function breathGain(phi, params) {
+  return 1 + params.breath.ensemble_depth * Math.sin(phi);
+}
+function anchorSwell(phi, offset) {
+  return 0.5 + 0.5 * Math.sin(phi + offset);
+}
+
+// Explicit exports: lexical top-level bindings are not reachable from a
+// vm sandbox (tests) nor listed on window; this is the core's public surface.
+Object.assign(globalThis, {
+  DEFAULT_SCALE, DEFAULT_PARAMS, DEFAULT_SCORE, DEFAULT_SCALE_DRIFT,
+  mulberry32, gaussian, emaAlpha, clamp, smoothstep,
+  centsBetween, foldCents, nearestDip, fnv1a, ombakScale,
+  pitchHzFor, assignRoles,
+  PairRadio, PairSensor, RewardState,
+  FingerprintDrift, ScoreState, interpolateScale,
+  breathGain, anchorSwell,
+});
+</script>
+
+<script>
+// ============================================================================
+// Simulator shell: room physics, Web Audio ensemble, live tuning controls.
+// Everything model-related lives in nearfield-core above and is test-covered.
+// ============================================================================
+'use strict';
+
+const ROOM_W = 16, ROOM_H = 10;            // meters
+const TICK_S = 0.2;                        // sensing/reward cadence (5 Hz, spec §5.1)
+const ROLE_COLORS = { anchor: '#4a6cd4', voice: '#e8e2d2', shimmer: '#59d6d6' };
+
+const sim = {
+  params: null, scale: null, scoreData: null, scaleDrift: null,
+  agents: [], listener: { x: ROOM_W / 2, y: ROOM_H / 2 },
+  preset: 'dance', speed: 1.0, idealSensing: false,
+  running: false, t: 0, tickAcc: 0,
+  rng: mulberry32(7),
+  scenes: { A: null, B: null, active: 'A' },
+  audio: null,   // {ctx, master, comp}
+  masterVol: 0.5,
+  // score transport (spec §12) + performance seed (spec §13)
+  score: null, scoreOn: false, scoreT: 0, compression: 1,
+  scoreNow: null, effScale: null, gongStart: -1e9,
+  perfSeed: String(Math.floor(Date.now() / 1000)),
+};
+
+// --- config loading (fetch when served over http, embedded on file://) ------
+
+async function loadConfigs() {
+  sim.scale = JSON.parse(JSON.stringify(DEFAULT_SCALE));
+  sim.params = JSON.parse(JSON.stringify(DEFAULT_PARAMS));
+  sim.scoreData = JSON.parse(JSON.stringify(DEFAULT_SCORE));
+  sim.scaleDrift = JSON.parse(JSON.stringify(DEFAULT_SCALE_DRIFT));
+  try {
+    const [s, p, sc, sd] = await Promise.all([
+      fetch('../config/scale.json').then(r => r.ok ? r.json() : null),
+      fetch('../config/params.json').then(r => r.ok ? r.json() : null),
+      fetch('../config/score.json').then(r => r.ok ? r.json() : null),
+      fetch('../config/scale_drift.json').then(r => r.ok ? r.json() : null),
+    ]);
+    if (s) sim.scale = s;
+    if (p) deepAssign(sim.params, p);
+    if (sc) sim.scoreData = sc;
+    if (sd) sim.scaleDrift = sd;
+  } catch (_) { /* file:// or no server — embedded defaults are fine */ }
+  sim.score = new ScoreState(sim.scoreData, sim.params);
+}
+
+// merge src into dst in place, preserving object identity (live references
+// inside RewardState/PairSensor keep working)
+function deepAssign(dst, src) {
+  for (const k of Object.keys(src)) {
+    if (src[k] && typeof src[k] === 'object' && !Array.isArray(src[k]) &&
+        dst[k] && typeof dst[k] === 'object') deepAssign(dst[k], src[k]);
+    else dst[k] = Array.isArray(src[k]) ? [...src[k]] : src[k];
+  }
+}
+
+function getPath(obj, path) { return path.split('.').reduce((o, k) => o[k], obj); }
+function setPath(obj, path, v) {
+  const ks = path.split('.'); const last = ks.pop();
+  ks.reduce((o, k) => o[k], obj)[last] = v;
+}
+
+// --- agents ------------------------------------------------------------------
+
+function makeAgents(n) {
+  disposeAudio();
+  if (typeof closePhoneView === 'function' && phone.agentId !== null) closePhoneView();
+  const assigns = assignRoles(n, sim.scale, sim.params);
+  const anchorCount = assigns.filter(a => a.role === 'anchor').length;
+  const nonAnchors = assigns.filter(a => a.role !== 'anchor').length;
+  const bukaLen = sim.scoreData.keyframes[1]?.at_s ?? 120;
+  let anchorIdx = 0, entryIdx = 0;
+  sim.agents = assigns.map(a => {
+    const agent = {
+      ...a,
+      x: 1 + (ROOM_W - 2) * sim.rng(), y: 1 + (ROOM_H - 2) * sim.rng(),
+      vx: 0, vy: 0, speedSm: 0,
+      reward: new RewardState(a, sim.params, sim.scale),
+      sensors: new Map(), radios: new Map(),
+      dance: { phase: 'wander', target: null, timer: 2 + 6 * sim.rng(), tempo: 0.6 + sim.rng() },
+      out: { W: 0, B: 0, partialGains: [1, 0, 0, 0], detuneCents: 0, amRate: 0.1, amDepth: 0, focusId: null, E: 0 },
+      breathOffset: a.role === 'anchor' ? (2 * Math.PI * (anchorIdx++) / Math.max(anchorCount, 1)) : 0,
+      // buka: anchors enter at 0, everyone else staggers across the section
+      entryAt: a.role === 'anchor' ? 0 : (++entryIdx) * (bukaLen / (nonAnchors + 1)),
+      entryGain: 1, fpCents: 0, fp: null,
+      drag: null, audio: null,
+    };
+    return agent;
+  });
+  reseedFingerprints();
+  for (const a of sim.agents) {
+    for (const b of sim.agents) {
+      if (a.id === b.id) continue;
+      a.sensors.set(b.id, new PairSensor(sim.params));
+      a.radios.set(b.id, new PairRadio(sim.params, mulberry32(a.id * 1000 + b.id)));
+    }
+  }
+  if (sim.audio) buildAudio();
+}
+
+function reseedFingerprints() {
+  for (const a of sim.agents) {
+    const mult = sim.params.drift.role_multipliers[a.role] ?? 1;
+    a.fp = new FingerprintDrift(fnv1a(`${a.id}|${sim.perfSeed}`), sim.params, mult, a.pitchHz);
+    a.fpCents = 0;
+  }
+}
+
+// --- movement presets ---------------------------------------------------------
+
+function stepPhysics(dt) {
+  const speed = sim.speed;
+  for (const a of sim.agents) {
+    if (a.drag) { // dragging: velocity from pointer motion (motion energy follows)
+      a.vx = (a.drag.x - a.x) / Math.max(dt, 1e-3);
+      a.vy = (a.drag.y - a.y) / Math.max(dt, 1e-3);
+      a.x = a.drag.x; a.y = a.drag.y;
+    } else if (sim.preset === 'still') {
+      a.vx = a.vy = 0;
+    } else if (a.role === 'anchor' && sim.preset !== 'drift') {
+      ouStep(a, dt, 0.12 * speed); // anchors barely move: the gravitational field
+    } else if (sim.preset === 'drift') {
+      ouStep(a, dt, 0.5 * speed);
+    } else if (sim.preset === 'flock') {
+      let fx = 0, fy = 0;
+      for (const b of sim.agents) {
+        if (b.id === a.id) continue;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const d = Math.hypot(dx, dy) || 1e-3;
+        if (d < 0.8) { fx -= dx / d * 1.6; fy -= dy / d * 1.6; }
+        else if (d < 3) { fx += dx / d * 0.25; fy += dy / d * 0.25; }
+      }
+      a.vx += (fx * dt + (sim.rng() - 0.5) * 0.4 * dt) * speed;
+      a.vy += (fy * dt + (sim.rng() - 0.5) * 0.4 * dt) * speed;
+      dampAndMove(a, dt, 0.9 * speed);
+    } else { // dance: approach a partner, linger, disperse
+      const D = a.dance;
+      D.timer -= dt * D.tempo * speed;
+      if (D.phase === 'wander') {
+        if (!D.point || D.timer <= 0) {
+          D.point = { x: 0.8 + (ROOM_W - 1.6) * sim.rng(), y: 0.8 + (ROOM_H - 1.6) * sim.rng() };
+          D.timer = 3 + 5 * sim.rng();
+          if (sim.rng() < 0.35 && sim.agents.length > 1) {
+            D.phase = 'seek';
+            do { D.target = sim.agents[Math.floor(sim.rng() * sim.agents.length)].id; }
+            while (D.target === a.id);
+          }
+        }
+        seek(a, D.point, dt, 0.7 * speed);
+      } else if (D.phase === 'seek') {
+        const t = sim.agents.find(x => x.id === D.target);
+        if (!t) { D.phase = 'wander'; D.timer = 0; }
+        else {
+          seek(a, t, dt, 0.85 * speed);
+          if (Math.hypot(t.x - a.x, t.y - a.y) < 1.0) { D.phase = 'linger'; D.timer = 5 + 15 * sim.rng(); }
+        }
+      } else { // linger
+        ouStep(a, dt, 0.06 * speed); // tiny sway
+        if (D.timer <= 0) { D.phase = 'wander'; D.timer = 0; D.point = null; }
+      }
+    }
+    // walls
+    a.x = clamp(a.x, 0.3, ROOM_W - 0.3);
+    a.y = clamp(a.y, 0.3, ROOM_H - 0.3);
+    // smoothed speed -> motion energy proxy (calm walk 0.7 m/s ~ 0.5)
+    const sp = Math.hypot(a.vx, a.vy);
+    a.speedSm += (sp - a.speedSm) * emaAlpha(dt, sim.params.wind.motion_ema_tau_s);
+  }
+  // personal space: bodies don't stack (skip in 'still' so posed scenes hold)
+  if (sim.preset !== 'still') {
+    for (const a of sim.agents) {
+      for (const b of sim.agents) {
+        if (b.id <= a.id || a.drag || b.drag) continue;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const d = Math.hypot(dx, dy);
+        if (d < 0.55 && d > 1e-4) {
+          const push = (0.55 - d) * 0.5;
+          a.x -= dx / d * push; a.y -= dy / d * push;
+          b.x += dx / d * push; b.y += dy / d * push;
+        }
+      }
+    }
+  }
+}
+
+function ouStep(a, dt, vTarget) {
+  a.vx += ((sim.rng() - 0.5) * 2.2 * dt - a.vx * 0.6 * dt);
+  a.vy += ((sim.rng() - 0.5) * 2.2 * dt - a.vy * 0.6 * dt);
+  dampAndMove(a, dt, vTarget);
+}
+function dampAndMove(a, dt, vMax) {
+  const sp = Math.hypot(a.vx, a.vy);
+  if (sp > vMax) { a.vx *= vMax / sp; a.vy *= vMax / sp; }
+  a.x += a.vx * dt; a.y += a.vy * dt;
+  if (a.x < 0.3 || a.x > ROOM_W - 0.3) a.vx *= -1;
+  if (a.y < 0.3 || a.y > ROOM_H - 0.3) a.vy *= -1;
+}
+function seek(a, target, dt, v) {
+  const dx = target.x - a.x, dy = target.y - a.y;
+  const d = Math.hypot(dx, dy) || 1e-3;
+  a.vx += (dx / d * v - a.vx) * 3 * dt;
+  a.vy += (dy / d * v - a.vy) * 3 * dt;
+  a.x += a.vx * dt; a.y += a.vy * dt;
+}
+
+// --- sensing + reward tick ----------------------------------------------------
+
+function idealRssi(d) {
+  const p = sim.params.ble_model;
+  return p.p0_dbm - 10 * p.path_loss_n * Math.log10(Math.max(d, 0.1));
+}
+
+function stepModel(dt) {
+  // Score clock: compression multiplies score time AND the model dt below, so
+  // the arc's proportions hold at e.g. 16x audition speed (physics stays real-time).
+  const comp = sim.scoreOn ? sim.compression : 1;
+  const dtM = dt * comp;
+  let bloomMultiplier = 1, fpAmp = sim.params.drift.fingerprint_amplitude;
+  if (sim.scoreOn) {
+    sim.scoreT = Math.min(sim.scoreT + dtM, sim.scoreData.duration_s);
+    const st = sim.score.tick(sim.scoreT);
+    sim.scoreNow = st;
+    for (const [path, v] of st.patches) {
+      if (path.includes('.')) setPath(sim.params, path, v); // score-only scalars handled below
+    }
+    bloomMultiplier = st.bloomMultiplier;
+    fpAmp = st.fingerprintAmplitude;
+    for (const ev of st.events) sim.gongStart = sim.t;
+    sim.effScale = interpolateScale(sim.scaleDrift, st.stretch);
+  } else {
+    sim.effScale = null;
+  }
+  for (const a of sim.agents) {
+    const encounters = new Map(), buckets = new Map(), peerPitches = new Map();
+    for (const b of sim.agents) {
+      if (b.id === a.id) continue;
+      const d = Math.hypot(b.x - a.x, b.y - a.y);
+      const raw = sim.idealSensing ? idealRssi(d) : a.radios.get(b.id).update(dt, d);
+      const s = a.sensors.get(b.id).update(dt, raw);
+      buckets.set(b.id, s.bucket);
+      encounters.set(b.id, s.encounterActive);
+      peerPitches.set(b.id, b.pitchHz);
+    }
+    const motion = clamp(a.speedSm / 1.4, 0, 1);
+    a.out = a.reward.update(dtM, { encounters, buckets, motion, peerPitches, bloomMultiplier });
+    a.motion = motion;
+    a.fpCents = a.fp.update(dtM, fpAmp);
+    const entryTarget = (!sim.scoreOn || sim.scoreT >= a.entryAt) ? 1 : 0;
+    a.entryGain += (entryTarget - a.entryGain) * emaAlpha(dt, 1.5);
+  }
+}
+
+// --- audio ---------------------------------------------------------------------
+
+function buildAudio() {
+  const { ctx, comp } = sim.audio;
+  const ratios = sim.scale.spectrum.ratios;
+  for (const a of sim.agents) {
+    const panner = new StereoPannerNode(ctx);
+    const agentGain = new GainNode(ctx, { gain: 0 });
+    agentGain.connect(panner).connect(comp);
+    const oscs = [], pGains = [];
+    for (let k = 0; k < 4; k++) {
+      const osc = new OscillatorNode(ctx, { type: 'sine', frequency: a.pitchHz * ratios[k] });
+      const g = new GainNode(ctx, { gain: k === 0 ? sim.scale.spectrum.amps[0] : 0 });
+      osc.connect(g).connect(agentGain);
+      osc.start();
+      oscs.push(osc); pGains.push(g);
+    }
+    // shimmer AM lives in the graph (LFO → gain param) so modulation keeps
+    // breathing at audio rate when background JS is throttled to ~1 Hz
+    const lfo = new OscillatorNode(ctx, { type: 'sine', frequency: 0.1 });
+    const lfoGain = new GainNode(ctx, { gain: 0 });
+    lfo.connect(lfoGain).connect(agentGain.gain);
+    lfo.start();
+    a.audio = { oscs, pGains, agentGain, panner, lfo, lfoGain };
+  }
+}
+
+// Generated impulse response: high-damped exponential-decay noise (no samples
+// needed). Regenerated when decay/damp params change.
+function rebuildReverbIR() {
+  const A = sim.audio;
+  if (!A) return;
+  const T = sim.params.timbre;
+  const cfg = `${T.reverb_decay_s}|${T.reverb_damp_hz}`;
+  if (A.irCfg === cfg) return;
+  A.irCfg = cfg;
+  const sr = A.ctx.sampleRate;
+  const len = Math.max(1, Math.floor(T.reverb_decay_s * sr));
+  const ir = A.ctx.createBuffer(2, len, sr);
+  const rng = mulberry32(1234);
+  const dampA = 1 - Math.exp(-2 * Math.PI * T.reverb_damp_hz / sr);
+  for (let ch = 0; ch < 2; ch++) {
+    const data = ir.getChannelData(ch);
+    let lp = 0;
+    for (let i = 0; i < len; i++) {
+      const env = Math.exp(-6.9 * i / len); // ~RT60 over the buffer
+      lp += ((rng() * 2 - 1) - lp) * dampA;
+      data[i] = lp * env;
+    }
+  }
+  A.convolver.buffer = ir;
+}
+
+function disposeAudio() {
+  for (const a of sim.agents) {
+    if (!a.audio) continue;
+    for (const o of a.audio.oscs) { try { o.stop(); } catch (_) {} }
+    try { a.audio.lfo.stop(); } catch (_) {}
+    a.audio.agentGain.disconnect();
+    a.audio = null;
+  }
+}
+
+function applyAudio(now) {
+  if (!sim.audio) return;
+  const comp = sim.scoreOn ? sim.compression : 1;
+  const phi = 2 * Math.PI * ((sim.t * comp) % sim.params.breath.period_s) / sim.params.breath.period_s;
+  const breath = breathGain(phi, sim.params);
+  const masterMult = sim.scoreOn && sim.scoreNow ? sim.scoreNow.masterMultiplier : 1;
+  const gongAge = (sim.t - sim.gongStart) * comp;
+  const gongActive = gongAge >= 0 && gongAge < 20;
+  // drifting scale: frequencies glide as the stretch migrates (spec §13.1)
+  const eff = sim.effScale;
+  const ratios = eff ? eff.spectrum.ratios : sim.scale.spectrum.ratios;
+  const effScaleObj = eff ? {
+    base_freq_hz: sim.scale.base_freq_hz,
+    pseudo_octave_ratio: eff.stretch ?? eff.spectrum.ratios[1],
+    scale_cents: eff.scale_cents,
+  } : sim.scale;
+  // live voicing params (spec §5.5)
+  const T = sim.params.timbre;
+  sim.audio.shelf.frequency.setTargetAtTime(T.shelf_freq_hz, now, 0.1);
+  sim.audio.shelf.gain.setTargetAtTime(T.shelf_gain_db, now, 0.1);
+  sim.audio.lowpass.frequency.setTargetAtTime(T.lowpass_hz, now, 0.1);
+  sim.audio.dryGain.gain.setTargetAtTime(Math.cos(T.reverb_wet * Math.PI / 2), now, 0.1);
+  sim.audio.wetGain.gain.setTargetAtTime(Math.sin(T.reverb_wet * Math.PI / 2), now, 0.1);
+  rebuildReverbIR();
+  for (const a of sim.agents) {
+    if (!a.audio) continue;
+    const roleP = sim.params.roles[a.role];
+    const o = a.out;
+    const pitch = pitchHzFor(effScaleObj, a.degreeIndex, a.register);
+    for (let k = 0; k < 4; k++) {
+      const f = pitch * ratios[k];
+      // equal-loudness tilt: high partials recede (spec §5.5)
+      const w = Math.min(1, Math.pow(T.loudness_ref_hz / f, T.loudness_exponent));
+      a.audio.oscs[k].frequency.setTargetAtTime(f, now, 2.0);
+      a.audio.pGains[k].gain.setTargetAtTime(o.partialGains[k] * w, now, 0.08);
+      a.audio.oscs[k].detune.setTargetAtTime(o.detuneCents + a.fpCents, now, 0.08);
+    }
+    // spatialization relative to the listener
+    const dx = a.x - sim.listener.x, dy = a.y - sim.listener.y;
+    const d = Math.hypot(dx, dy);
+    const gDist = Math.min(1, 1 / Math.max(d, 1));
+    // role envelope; a section gong swells all anchors together, in phase
+    const roleEnv = a.role === 'anchor'
+      ? (gongActive ? Math.sin(Math.PI * gongAge / 20) : anchorSwell(phi, a.breathOffset))
+      : 1;
+    const g = roleP.base_gain * roleEnv * breath * gDist *
+      a.entryGain * masterMult * sim.masterVol * 0.14;
+    a.audio.agentGain.gain.setTargetAtTime(g, now, 0.05);
+    a.audio.lfo.frequency.setTargetAtTime(o.amRate * comp, now, 0.2);
+    a.audio.lfoGain.gain.setTargetAtTime(o.amDepth * g, now, 0.2);
+    a.audio.panner.pan.setTargetAtTime(clamp(dx / (ROOM_W / 2), -1, 1), now, 0.1);
+  }
+}
+
+// --- canvas --------------------------------------------------------------------
+
+const canvas = document.getElementById('room');
+const cx = canvas.getContext('2d');
+let view = { s: 50, ox: 0, oy: 0 };
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  const r = canvas.getBoundingClientRect();
+  canvas.width = r.width * dpr; canvas.height = r.height * dpr;
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const s = Math.min(r.width / (ROOM_W + 1), r.height / (ROOM_H + 1));
+  view = { s, ox: (r.width - ROOM_W * s) / 2, oy: (r.height - ROOM_H * s) / 2 };
+}
+window.addEventListener('resize', resize);
+
+const px = (x) => view.ox + x * view.s;
+const py = (y) => view.oy + y * view.s;
+
+function draw() {
+  const r = canvas.getBoundingClientRect();
+  cx.clearRect(0, 0, r.width, r.height);
+  // room
+  cx.strokeStyle = '#2c2c36'; cx.lineWidth = 1;
+  cx.strokeRect(px(0), py(0), ROOM_W * view.s, ROOM_H * view.s);
+  // encounter edges
+  cx.lineWidth = 1;
+  for (const a of sim.agents) {
+    for (const b of sim.agents) {
+      if (b.id <= a.id) continue;
+      const sAB = a.sensors.get(b.id);
+      if (sAB && sAB.encounterActive) {
+        const e = Math.max(a.out.focusId === b.id ? a.visE : 0.25, 0.25);
+        cx.strokeStyle = `rgba(140,150,255,${0.15 + 0.5 * e})`;
+        cx.beginPath(); cx.moveTo(px(a.x), py(a.y)); cx.lineTo(px(b.x), py(b.y)); cx.stroke();
+      }
+    }
+  }
+  // agents
+  for (const a of sim.agents) {
+    const rad = 4 + 10 * (a.visB ?? 0) + (a.role === 'anchor' ? 3 : 0);
+    cx.beginPath();
+    cx.fillStyle = ROLE_COLORS[a.role];
+    cx.globalAlpha = a.role === 'shimmer' ? 0.55 + 0.45 * (a.visM ?? 0) : 0.9;
+    cx.arc(px(a.x), py(a.y), rad, 0, 2 * Math.PI);
+    cx.fill();
+    cx.globalAlpha = 1;
+    if (a.out.detuneCents !== 0 && Math.abs(a.out.detuneCents) > 0.5) {
+      cx.strokeStyle = 'rgba(255,200,120,0.8)';
+      cx.beginPath(); cx.arc(px(a.x), py(a.y), rad + 3, 0, 2 * Math.PI); cx.stroke();
+    }
+  }
+  // selected agent (phone view open)
+  if (phone.agentId !== null) {
+    const sel = sim.agents.find(x => x.id === phone.agentId);
+    if (sel) {
+      cx.strokeStyle = '#6a6aff'; cx.lineWidth = 1.5;
+      cx.beginPath(); cx.arc(px(sel.x), py(sel.y), 14, 0, 2 * Math.PI); cx.stroke();
+    }
+  }
+  // listener
+  const lx = px(sim.listener.x), ly = py(sim.listener.y);
+  cx.strokeStyle = '#9aa0b4'; cx.lineWidth = 1.5;
+  cx.beginPath(); cx.arc(lx, ly, 9, 0, 2 * Math.PI); cx.stroke();
+  cx.beginPath(); cx.arc(lx, ly, 2.5, 0, 2 * Math.PI); cx.fillStyle = '#9aa0b4'; cx.fill();
+}
+
+// --- phone view: the §14 interference-topography screen, per agent, live -------
+
+const phone = {
+  agentId: null, dark: true, gl: null, prog: null,
+  beatPhases: new Map(), // peerId -> accumulated fringe phase
+  centers: null, centerSeedRng: null, lastT: 0,
+  visMeW: [], visPeerE: new Map(), visDensity: null, // per-frame smoothing state
+};
+
+const PHONE_FS = `
+#extension GL_OES_standard_derivatives : enable
+precision highp float;
+uniform vec2 res;
+uniform float ink, density, breathScale;
+uniform vec2 meC[6];
+uniform float meLam[6], meW[6];
+uniform vec2 peerC[3];
+uniform float peerLam[3], peerW[3], peerPhase[3];
+float hair(float v, float n, float w) {
+  float q = v * n;
+  float d = abs(fract(q) - 0.5) / (fwidth(q) + 1e-5);
+  return 1.0 - smoothstep(w, w + 1.0, d);
+}
+void main(){
+  vec2 uv = (gl_FragCoord.xy - 0.5*res) / min(res.x, res.y);
+  uv *= breathScale;
+  float v = 0.0; float g = 1e-4;
+  for (int k = 0; k < 6; k++) {
+    v += meW[k] * cos(6.2831853 * length(uv - meC[k]) / meLam[k]);
+    g += meW[k];
+  }
+  for (int j = 0; j < 3; j++) {
+    v += peerW[j] * cos(6.2831853 * length(uv - peerC[j]) / peerLam[j] + peerPhase[j]);
+    g += peerW[j];
+  }
+  v = v / g;
+  float c = hair(v, density, 0.7);
+  float lum = mix(1.0 - c, c, ink);
+  gl_FragColor = vec4(vec3(lum), 1.0);
+}`;
+
+function initPhoneGL() {
+  const c = document.getElementById('phoneCanvas');
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  c.width = 240 * dpr; c.height = 480 * dpr;
+  const g = c.getContext('webgl', { antialias: true });
+  g.getExtension('OES_standard_derivatives');
+  const compile = (type, src) => {
+    const sh = g.createShader(type);
+    g.shaderSource(sh, src); g.compileShader(sh);
+    if (!g.getShaderParameter(sh, g.COMPILE_STATUS)) throw new Error(g.getShaderInfoLog(sh));
+    return sh;
+  };
+  const prog = g.createProgram();
+  g.attachShader(prog, compile(g.VERTEX_SHADER, 'attribute vec2 p; void main(){ gl_Position = vec4(p,0.,1.); }'));
+  g.attachShader(prog, compile(g.FRAGMENT_SHADER, PHONE_FS));
+  g.linkProgram(prog);
+  if (!g.getProgramParameter(prog, g.LINK_STATUS)) throw new Error(g.getProgramInfoLog(prog));
+  const quad = g.createBuffer();
+  g.bindBuffer(g.ARRAY_BUFFER, quad);
+  g.bufferData(g.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), g.STATIC_DRAW);
+  phone.gl = g; phone.prog = prog;
+}
+
+function openPhoneView(agentId) {
+  phone.agentId = agentId;
+  phone.beatPhases = new Map();
+  phone.visMeW = []; phone.visPeerE = new Map(); phone.visDensity = null;
+  // per-agent seeded center layout (§14.2). All centers sit OUTSIDE the
+  // visible frame (portrait corner radius ~1.12) so only arcs cross the
+  // screen — no focal point ever appears except the earned final-gong one.
+  const r = mulberry32(fnv1a(`${agentId}|${sim.perfSeed}|visual`));
+  // 6 sources: fundamental + two of its room "reflections" (same wavelength —
+  // a lone sine still weaves a multi-source interference field, never a
+  // bullseye), then partials 2..4 as bloom unlocks them.
+  phone.centers = Array.from({ length: 6 }, () => {
+    const ang = r() * Math.PI * 2, rad = 1.3 + r() * 0.5;
+    return {
+      x: Math.cos(ang) * rad, y: Math.sin(ang) * rad,
+      wob: r() * Math.PI * 2, rate: 0.03 + r() * 0.04,
+    };
+  });
+  if (!phone.gl) initPhoneGL();
+  document.getElementById('phoneView').style.display = 'block';
+  document.getElementById('phoneView').classList.toggle('dark', phone.dark);
+}
+function closePhoneView() { phone.agentId = null; document.getElementById('phoneView').style.display = 'none'; }
+document.getElementById('phoneClose').onclick = closePhoneView;
+document.getElementById('phoneInvert').onclick = () => {
+  phone.dark = !phone.dark;
+  document.getElementById('phoneView').classList.toggle('dark', phone.dark);
+};
+
+function soundingHz(a) {
+  return a.pitchHz * Math.pow(2, (a.out.detuneCents + a.fpCents) / 1200);
+}
+
+// pitch -> ring spacing, compressed so registers differ without exploding
+// density at phone scale; clamped against sub-hairline spacing
+function lamFor(fHz) {
+  return Math.max(0.32 * Math.pow(220 / fHz, 0.7), 0.06);
+}
+
+// The beat you can actually hear: smallest frequency difference among
+// near-coinciding partial pairs of the two tones (spec §2.1 — roughness lives
+// within the critical band). No coincidence -> essentially static moire.
+function pairBeatHz(fA, fB, ratios) {
+  let best = Infinity;
+  for (const ri of ratios) {
+    for (const rj of ratios) {
+      const d = Math.abs(fA * ri - fB * rj);
+      if (d < best) best = d;
+    }
+  }
+  return best < 25 ? best : 0.04;
+}
+
+function drawPhone(dt) {
+  const a = sim.agents.find(x => x.id === phone.agentId);
+  if (!a) { closePhoneView(); return; }
+  const g = phone.gl, prog = phone.prog;
+  const ratios = (sim.effScale ? sim.effScale.spectrum.ratios : sim.scale.spectrum.ratios);
+  const fpAmp = sim.scoreOn && sim.scoreNow ? sim.scoreNow.fingerprintAmplitude : 1;
+  const comp = sim.scoreOn ? sim.compression : 1;
+  const fMe = soundingHz(a);
+
+  // my 6 sources (fundamental ×3 image-sources + partials 2..4), all
+  // off-frame; the final gong draws them into the screen center — the one
+  // earned focal point (§14.1)
+  const srcSpec = [
+    { pk: 0, w: 1.0 }, { pk: 0, w: 0.65 }, { pk: 0, w: 0.45 },
+    { pk: 1, w: 1.0 }, { pk: 2, w: 1.0 }, { pk: 3, w: 1.0 },
+  ];
+  const meC = [], meLam = [], meW = [];
+  for (let k = 0; k < 6; k++) {
+    const c = phone.centers[k];
+    let x = c.x + 0.06 * Math.sin(sim.t * c.rate + c.wob);
+    let y = c.y + 0.06 * Math.cos(sim.t * c.rate * 0.9 + c.wob);
+    x *= fpAmp; y *= fpAmp;   // convergence to (0,0) as fingerprints ramp out
+    meC.push(x, y);
+    const s = srcSpec[k];
+    meLam.push(lamFor(a.pitchHz * ratios[s.pk]));
+    const wTarget = a.out.partialGains[s.pk] * s.w;
+    phone.visMeW[k] = (phone.visMeW[k] ?? 0) + (wTarget - (phone.visMeW[k] ?? 0)) * emaAlpha(dt, 0.2);
+    meW.push(phone.visMeW[k]);
+  }
+
+  // top peers by encounter envelope; fringe phase advances at the TRUE beat rate
+  const peers = [...a.reward.E.entries()]
+    .map(([id, E]) => ({ id, E, peer: sim.agents.find(x => x.id === id) }))
+    .filter(p => p.peer && p.E > 0.01)
+    .sort((p, q) => q.E - p.E).slice(0, 3);
+  const peerC = [], peerLam = [], peerW = [], peerPhase = [];
+  for (let j = 0; j < 3; j++) {
+    const p = peers[j];
+    if (p) {
+      const eSm = (phone.visPeerE.get(p.id) ?? 0) +
+        (p.E - (phone.visPeerE.get(p.id) ?? 0)) * emaAlpha(dt, 0.2);
+      phone.visPeerE.set(p.id, eSm);
+      const ang = (fnv1a(`${p.id}|azimuth`) % 6283) / 1000;
+      const rad = 1.9 - 0.7 * eSm;   // approaches but stays outside the frame
+      peerC.push(Math.cos(ang) * rad, Math.sin(ang) * rad);
+      peerLam.push(lamFor(soundingHz(p.peer)));
+      peerW.push(eSm);
+      // fringe drift = the audible beat: nearest coinciding-partial difference
+      // (0 when no partials coincide), soft-compressed above ~1 Hz
+      const beatHz = 1.2 * Math.tanh(pairBeatHz(fMe, soundingHz(p.peer), ratios) / 1.2);
+      const ph = (phone.beatPhases.get(p.id) ?? 0) + 2 * Math.PI * beatHz * dt * comp;
+      phone.beatPhases.set(p.id, ph);
+      peerPhase.push(ph);
+    } else { peerC.push(9, 9); peerLam.push(1); peerW.push(0); peerPhase.push(0); }
+  }
+
+  const phi = 2 * Math.PI * ((sim.t * comp) % sim.params.breath.period_s) / sim.params.breath.period_s;
+  g.viewport(0, 0, g.canvas.width, g.canvas.height);
+  g.useProgram(prog);
+  const loc = n => g.getUniformLocation(prog, n);
+  g.uniform2f(loc('res'), g.canvas.width, g.canvas.height);
+  g.uniform1f(loc('ink'), phone.dark ? 1 : 0);
+  const densTarget = 2 + 2 * a.out.W;
+  phone.visDensity = (phone.visDensity ?? densTarget) +
+    (densTarget - (phone.visDensity ?? densTarget)) * emaAlpha(dt, 0.5);
+  g.uniform1f(loc('density'), phone.visDensity);           // wind -> line density
+  g.uniform1f(loc('breathScale'), 1 + 0.02 * Math.sin(phi));
+  g.uniform2fv(loc('meC'), meC);
+  g.uniform1fv(loc('meLam'), meLam);
+  g.uniform1fv(loc('meW'), meW);
+  g.uniform2fv(loc('peerC'), peerC);
+  g.uniform1fv(loc('peerLam'), peerLam);
+  g.uniform1fv(loc('peerW'), peerW);
+  g.uniform1fv(loc('peerPhase'), peerPhase);
+  const pAttr = g.getAttribLocation(prog, 'p');
+  g.enableVertexAttribArray(pAttr);
+  g.vertexAttribPointer(pAttr, 2, g.FLOAT, false, 0, 0);
+  g.drawArrays(g.TRIANGLES, 0, 3);
+
+  const det = a.out.detuneCents + a.fpCents;
+  document.getElementById('phoneLabel').textContent =
+    `#${a.id} · ${a.role} · ${fMe.toFixed(1)} Hz (${det >= 0 ? '+' : ''}${det.toFixed(1)}¢)`;
+}
+
+// --- pointer interaction --------------------------------------------------------
+
+let dragging = null; // {kind:'agent'|'listener', agent?}
+canvas.addEventListener('pointerdown', ev => {
+  const rect = canvas.getBoundingClientRect();
+  const x = (ev.clientX - rect.left - view.ox) / view.s;
+  const y = (ev.clientY - rect.top - view.oy) / view.s;
+  if (Math.hypot(x - sim.listener.x, y - sim.listener.y) < 0.5) {
+    dragging = { kind: 'listener' };
+  } else {
+    let best = null, bd = 0.6;
+    for (const a of sim.agents) {
+      const d = Math.hypot(x - a.x, y - a.y);
+      if (d < bd) { bd = d; best = a; }
+    }
+    if (best) {
+      dragging = { kind: 'agent', agent: best, t0: performance.now(),
+        start: [ev.clientX, ev.clientY], last: [ev.clientX, ev.clientY] };
+      best.drag = { x: best.x, y: best.y };
+    }
+  }
+  canvas.setPointerCapture(ev.pointerId);
+});
+canvas.addEventListener('pointermove', ev => {
+  if (!dragging) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = clamp((ev.clientX - rect.left - view.ox) / view.s, 0.3, ROOM_W - 0.3);
+  const y = clamp((ev.clientY - rect.top - view.oy) / view.s, 0.3, ROOM_H - 0.3);
+  if (dragging.kind === 'listener') { sim.listener.x = x; sim.listener.y = y; }
+  else { dragging.agent.drag = { x, y }; dragging.last = [ev.clientX, ev.clientY]; }
+});
+window.addEventListener('pointerup', () => {
+  if (dragging?.kind === 'agent') {
+    dragging.agent.drag = null;
+    const moved = Math.hypot(dragging.last[0] - dragging.start[0], dragging.last[1] - dragging.start[1]);
+    if (performance.now() - dragging.t0 < 300 && moved < 8) {
+      openPhoneView(dragging.agent.id);   // tap (not drag): show that phone's screen
+    }
+  }
+  dragging = null;
+});
+
+// --- control panel ---------------------------------------------------------------
+
+const PARAM_DEFS = [
+  { group: 'Wind', items: [
+    ['wind.alpha_motion_per_s', 'motion charge /s', 0, 0.6, 0.01],
+    ['wind.alpha_novelty_per_s', 'novelty charge /s', 0, 1, 0.01],
+    ['wind.tau_wind_s', 'reservoir decay τ (s)', 5, 120, 1],
+  ]},
+  { group: 'Encounter', items: [
+    ['sensing.encounter_on_s', 'debounce on (s)', 0.5, 6, 0.1],
+    ['sensing.encounter_off_s', 'debounce off (s)', 1, 12, 0.1],
+    ['encounter.tau_attack_s', 'bloom attack τ (s)', 1, 20, 0.5],
+    ['encounter.tau_release_s', 'bloom release τ (s)', 1, 30, 0.5],
+    ['encounter.tau_familiarity_s', 'habituate τ (s)', 5, 90, 1],
+    ['encounter.tau_familiarity_release_s', 'forget τ (s)', 5, 180, 1],
+  ]},
+  { group: 'Bloom & partials', items: [
+    ['bloom.beta_familiarity', 'habituation depth β', 0, 1, 0.01],
+    ['bloom.gain_base', 'bloom base g₀', 0, 1, 0.01],
+    ['bloom.gain_wind', 'bloom wind g_W', 0, 1, 0.01],
+    ['bloom.partial_thresholds.0', 'partial 2 threshold', 0, 1, 0.01],
+    ['bloom.partial_thresholds.1', 'partial 3 threshold', 0, 1, 0.01],
+    ['bloom.partial_thresholds.2', 'partial 4 threshold', 0, 1, 0.01],
+    ['bloom.threshold_width', 'threshold width', 0.05, 0.5, 0.01],
+  ]},
+  { group: 'Resolution slew', items: [
+    ['slew.cents_start', 'start offset (cents)', 0, 30, 0.5],
+    ['slew.cents_per_s_max', 'slew rate (cents/s)', 1, 30, 0.5],
+    ['slew.dip_max_distance_cents', 'dip window (cents)', 0, 120, 5],
+    ['drift.ombak_enabled', 'ombak mode (even beat rate)', 0, 1, 'bool'],
+    ['drift.ombak_ref_hz', 'ombak reference (Hz)', 100, 800, 10],
+  ]},
+  { group: 'Shimmer & breath', items: [
+    ['shimmer_am.rate_motion_hz', 'AM rate × motion (Hz)', 0, 6, 0.1],
+    ['shimmer_am.depth_wind', 'AM depth × wind', 0, 0.8, 0.01],
+    ['breath.period_s', 'breath period (s)', 10, 180, 5],
+    ['breath.ensemble_depth', 'breath depth', 0, 0.3, 0.01],
+  ]},
+  { group: 'Timbre (voicing)', items: [
+    ['timbre.loudness_exponent', 'loudness tilt', 0, 1, 0.05],
+    ['timbre.shelf_gain_db', 'high shelf (dB)', -18, 0, 0.5],
+    ['timbre.shelf_freq_hz', 'shelf freq (Hz)', 800, 4000, 50],
+    ['timbre.lowpass_hz', 'lowpass (Hz)', 1000, 9000, 100],
+    ['timbre.reverb_wet', 'reverb wet', 0, 1, 0.02],
+    ['timbre.reverb_decay_s', 'reverb decay (s)', 1, 10, 0.5],
+    ['timbre.reverb_damp_hz', 'reverb damping (Hz)', 500, 8000, 100],
+  ]},
+  { group: 'BLE sensing', items: [
+    ['sensing.rssi_ema_tau_s', 'RSSI smoothing τ (s)', 0.5, 10, 0.1],
+    ['sensing.rssi_near_enter_dbm', 'NEAR enter (dBm)', -70, -35, 1],
+    ['sensing.rssi_near_exit_dbm', 'NEAR exit (dBm)', -75, -40, 1],
+    ['ble_model.shadow_sigma_db', 'shadow noise σ (dB)', 0, 14, 0.5],
+    ['ble_model.body_block_rate_per_min', 'body blocks /min', 0, 12, 0.5],
+    ['ble_model.body_block_db', 'body block (dB)', -25, 0, 1],
+  ]},
+];
+
+const mmss = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+function buildPanel() {
+  const panel = document.getElementById('panel');
+  panel.innerHTML = '';
+
+  // score transport (spec §12) + performance seed (spec §13)
+  const sc = document.createElement('fieldset');
+  sc.innerHTML = '<legend>Score — 16:00</legend>';
+  const tRow = document.createElement('div'); tRow.className = 'row';
+  const playBtn = mkBtn('▶ play score', () => {
+    sim.scoreOn = !sim.scoreOn;
+    if (sim.scoreOn) sim.score.seek(sim.scoreT);
+    playBtn.textContent = sim.scoreOn ? '❚❚ hold' : '▶ play score';
+  });
+  const rewBtn = mkBtn('⏮', () => { sim.scoreT = 0; sim.score.seek(0); scrub.value = 0; });
+  const posOut = document.createElement('output'); posOut.id = 'scorePos'; posOut.value = '—';
+  posOut.style.flex = '1'; posOut.style.textAlign = 'right';
+  tRow.append(playBtn, rewBtn, posOut);
+  sc.appendChild(tRow);
+  const scrubRow = document.createElement('div'); scrubRow.className = 'row';
+  scrubRow.innerHTML = '<label>scrub</label>';
+  const scrub = document.createElement('input');
+  scrub.type = 'range'; scrub.min = 0; scrub.max = sim.scoreData.duration_s; scrub.step = 5; scrub.value = 0;
+  scrub.id = 'scoreScrub';
+  scrub.oninput = () => { sim.scoreT = parseFloat(scrub.value); sim.score.seek(sim.scoreT); };
+  scrubRow.appendChild(scrub);
+  sc.appendChild(scrubRow);
+  const compRow = document.createElement('div'); compRow.className = 'row';
+  compRow.innerHTML = '<label>time compression</label>';
+  const compSel = document.createElement('select');
+  for (const c of [1, 2, 4, 8, 16]) {
+    const o = document.createElement('option'); o.value = c; o.textContent = `${c}×`;
+    if (c === sim.compression) o.selected = true;
+    compSel.appendChild(o);
+  }
+  compSel.onchange = () => sim.compression = parseInt(compSel.value, 10);
+  compRow.appendChild(compSel);
+  sc.appendChild(compRow);
+  const seedRow = document.createElement('div'); seedRow.className = 'row';
+  seedRow.innerHTML = '<label>performance seed</label>';
+  const seedInp = document.createElement('input');
+  seedInp.type = 'text'; seedInp.value = sim.perfSeed; seedInp.style.flex = '1'; seedInp.style.minWidth = '0';
+  seedInp.style.background = '#1e1e26'; seedInp.style.color = '#d8d8de';
+  seedInp.style.border = '1px solid #33333e'; seedInp.style.borderRadius = '6px'; seedInp.style.padding = '3px 6px';
+  seedInp.onchange = () => { sim.perfSeed = seedInp.value; reseedFingerprints(); };
+  const reroll = mkBtn('⟳', () => {
+    sim.perfSeed = String(Math.floor(Date.now() / 1000));
+    seedInp.value = sim.perfSeed;
+    reseedFingerprints();
+  });
+  seedRow.append(seedInp, reroll);
+  sc.appendChild(seedRow);
+  panel.appendChild(sc);
+
+  // ensemble group
+  const ens = document.createElement('fieldset');
+  ens.innerHTML = '<legend>Ensemble</legend>';
+  ens.appendChild(sliderRow('participants', 2, 50, 1, sim.agents.length, v => {
+    makeAgents(Math.round(v)); }));
+  const presetRow = document.createElement('div'); presetRow.className = 'row';
+  presetRow.innerHTML = '<label>movement</label>';
+  const sel = document.createElement('select');
+  for (const p of ['dance', 'drift', 'flock', 'still']) {
+    const o = document.createElement('option'); o.value = p; o.textContent = p;
+    if (p === sim.preset) o.selected = true;
+    sel.appendChild(o);
+  }
+  sel.onchange = () => sim.preset = sel.value;
+  presetRow.appendChild(sel);
+  ens.appendChild(presetRow);
+  ens.appendChild(sliderRow('movement rate', 0, 2, 0.05, sim.speed, v => sim.speed = v));
+  ens.appendChild(sliderRow('master volume', 0, 1, 0.01, sim.masterVol, v => sim.masterVol = v));
+  const idealRow = document.createElement('div'); idealRow.className = 'row';
+  idealRow.innerHTML = '<label>ideal sensing (A/B)</label>';
+  const chk = document.createElement('input'); chk.type = 'checkbox'; chk.className = 'toggle';
+  chk.checked = sim.idealSensing;
+  chk.onchange = () => sim.idealSensing = chk.checked;
+  idealRow.appendChild(chk);
+  ens.appendChild(idealRow);
+  panel.appendChild(ens);
+
+  // param groups
+  for (const g of PARAM_DEFS) {
+    const fs = document.createElement('fieldset');
+    fs.innerHTML = `<legend>${g.group}</legend>`;
+    for (const [path, label, min, max, step] of g.items) {
+      if (step === 'bool') {
+        const row = document.createElement('div'); row.className = 'row';
+        const lab = document.createElement('label'); lab.textContent = label;
+        const chk = document.createElement('input');
+        chk.type = 'checkbox'; chk.className = 'toggle'; chk.dataset.path = path;
+        chk.checked = !!getPath(sim.params, path);
+        chk.onchange = () => setPath(sim.params, path, chk.checked);
+        row.append(lab, chk);
+        fs.appendChild(row);
+        continue;
+      }
+      fs.appendChild(sliderRow(label, min, max, step, getPath(sim.params, path),
+        v => setPath(sim.params, path, v), path));
+    }
+    panel.appendChild(fs);
+  }
+
+  // scenes + export
+  const act = document.createElement('fieldset');
+  act.innerHTML = '<legend>Scenes & export</legend>';
+  const btns = document.createElement('div'); btns.className = 'btnrow';
+  const saveA = mkBtn('save → A', () => { sim.scenes.A = JSON.parse(JSON.stringify(sim.params)); flash(saveA); });
+  const saveB = mkBtn('save → B', () => { sim.scenes.B = JSON.parse(JSON.stringify(sim.params)); flash(saveB); });
+  const loadA = mkBtn('load A', () => loadScene('A'));
+  const loadB = mkBtn('load B', () => loadScene('B'));
+  const exp = mkBtn('Export params.json', exportParams);
+  btns.append(saveA, saveB, loadA, loadB);
+  act.appendChild(btns);
+  const btns2 = document.createElement('div'); btns2.className = 'btnrow';
+  btns2.appendChild(exp);
+  act.appendChild(btns2);
+  panel.appendChild(act);
+
+  const scaleInfo = document.createElement('fieldset');
+  scaleInfo.innerHTML = `<legend>Scale</legend>
+    <div style="color:#9aa0b4">degrees (cents): ${sim.scale.scale_cents.join(', ')}<br>
+    pseudo-octave: ${sim.scale.dip_intervals_cents.at(-1)}¢ (ratio ${sim.scale.pseudo_octave_ratio})<br>
+    spectrum: ${sim.scale.spectrum.ratios.join(' · ')}</div>`;
+  panel.appendChild(scaleInfo);
+}
+
+function sliderRow(label, min, max, step, value, onInput, path) {
+  const row = document.createElement('div'); row.className = 'row';
+  const lab = document.createElement('label'); lab.textContent = label;
+  const inp = document.createElement('input');
+  inp.type = 'range'; inp.min = min; inp.max = max; inp.step = step; inp.value = value;
+  if (path) inp.dataset.path = path;
+  const out = document.createElement('output'); out.value = fmt(value);
+  inp.oninput = () => { const v = parseFloat(inp.value); out.value = fmt(v); onInput(v); };
+  row.append(lab, inp, out);
+  return row;
+}
+const fmt = v => Math.abs(v) >= 10 ? v.toFixed(0) : v.toFixed(2);
+function mkBtn(txt, fn) { const b = document.createElement('button'); b.textContent = txt; b.onclick = fn; return b; }
+function flash(btn) { btn.classList.add('sceneActive'); setTimeout(() => btn.classList.remove('sceneActive'), 600); }
+
+function loadScene(name) {
+  const snap = sim.scenes[name];
+  if (!snap) return;
+  deepAssign(sim.params, snap);
+  // refresh slider/checkbox positions
+  document.querySelectorAll('input[data-path]').forEach(inp => {
+    if (inp.type === 'checkbox') { inp.checked = !!getPath(sim.params, inp.dataset.path); return; }
+    inp.value = getPath(sim.params, inp.dataset.path);
+    if (inp.nextElementSibling) inp.nextElementSibling.value = fmt(parseFloat(inp.value));
+  });
+}
+
+function exportParams() {
+  const blob = new Blob([JSON.stringify(sim.params, null, 2) + '\n'], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'params.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// --- main loop --------------------------------------------------------------------
+
+// The model is driven by wall-clock time from whichever driver is alive:
+// rAF when the window is visible, a fallback interval when Chrome throttles
+// rAF (background/occluded window) — audio must keep evolving either way.
+let lastAdvance = performance.now();
+
+function advance(elapsedS) {
+  let rem = Math.min(elapsedS, 2); // cap catch-up after long throttling
+  while (rem > 1e-4) {
+    const dt = Math.min(rem, TICK_S);
+    sim.t += dt;
+    stepPhysics(dt);
+    sim.tickAcc += dt;
+    while (sim.tickAcc >= TICK_S) { stepModel(TICK_S); sim.tickAcc -= TICK_S; }
+    rem -= dt;
+  }
+  if (sim.audio) applyAudio(sim.audio.ctx.currentTime);
+}
+
+function tickWall() {
+  const now = performance.now();
+  const elapsed = (now - lastAdvance) / 1000;
+  lastAdvance = now;
+  if (sim.running) advance(elapsed);
+}
+
+function frame() {
+  requestAnimationFrame(frame);
+  const now = performance.now();
+  const frameDt = Math.min((now - (phone.lastT || now)) / 1000, 0.1);
+  phone.lastT = now;
+  tickWall();
+  if (!sim.running) return;
+  // presentation smoothing: the model ticks at 5 Hz (sensing cadence, §5.1);
+  // anything the eye tracks gets re-interpolated per frame so nothing steps
+  const a1 = emaAlpha(frameDt, 0.15);
+  for (const a of sim.agents) {
+    a.visB = (a.visB ?? 0) + (a.out.B - (a.visB ?? 0)) * a1;
+    a.visE = (a.visE ?? 0) + (a.out.E - (a.visE ?? 0)) * a1;
+    a.visM = (a.visM ?? 0) + ((a.motion ?? 0) - (a.visM ?? 0)) * a1;
+  }
+  draw();
+  if (phone.agentId !== null) drawPhone(frameDt);
+  updateStats();
+}
+
+// fallback driver: only steps when rAF has starved for >350 ms
+setInterval(() => {
+  if (performance.now() - lastAdvance > 350) {
+    tickWall();
+    if (sim.running) { draw(); updateStats(true); }
+  }
+  // keep the context alive through iOS interruptions while the piece runs
+  if (sim.running && sim.audio && sim.audio.ctx.state !== 'running') {
+    sim.audio.ctx.resume().catch(() => {});
+  }
+}, 200);
+
+let lastStats = 0;
+function updateStats(force) {
+  const now = performance.now();
+  if (!force && now - lastStats < 400) return;
+  lastStats = now;
+  let enc = 0, sumB = 0, sumW = 0;
+  for (const a of sim.agents) {
+    sumB += a.out.B; sumW += a.out.W;
+    for (const [id, s] of a.sensors) if (id > a.id && s.encounterActive) enc++;
+  }
+  const n = sim.agents.length || 1;
+  const scorePart = sim.scoreOn && sim.scoreNow
+    ? `${sim.scoreNow.label} ${mmss(sim.scoreT)} · stretch ${sim.scoreNow.stretch.toFixed(3)} · `
+    : '';
+  document.getElementById('stats').textContent =
+    `${scorePart}${sim.agents.length} phones · ${enc} encounters · B̄ ${(sumB / n).toFixed(2)} · W̄ ${(sumW / n).toFixed(2)}${sim.idealSensing ? ' · IDEAL' : ' · BLE'}`;
+  const posOut = document.getElementById('scorePos');
+  if (posOut) posOut.value = sim.scoreOn && sim.scoreNow ? `${sim.scoreNow.label} · ${mmss(sim.scoreT)}` : mmss(sim.scoreT);
+  const scrub = document.getElementById('scoreScrub');
+  if (scrub && sim.scoreOn) scrub.value = sim.scoreT;
+  // compact player bar (mobile) mirrors the same score state
+  const mPlay = document.getElementById('mPlay');
+  if (mPlay) {
+    mPlay.textContent = sim.scoreOn ? '❚❚' : '▶';
+    const mScrub = document.getElementById('mScrub');
+    if (mScrub) {
+      if (+mScrub.max !== sim.scoreData.duration_s) mScrub.max = sim.scoreData.duration_s;
+      if (sim.scoreOn && document.activeElement !== mScrub) mScrub.value = sim.scoreT;
+    }
+    document.getElementById('mPos').textContent = mmss(sim.scoreT);
+  }
+}
+
+// --- compact player mode (phones / ?player): field + transport, no chrome ----
+(function wirePlayer() {
+  const q = new URLSearchParams(location.search);
+  const forced = q.has('player');   // force player mode on any screen
+  const tune = q.has('tune');       // escape hatch: force the full panel
+  // auto player on real touch phones (narrow, or coarse pointer w/o a mouse) —
+  // not on desktop touchscreens (they have hover)
+  const mq = matchMedia('(max-width: 820px), (pointer: coarse) and (hover: none)');
+  const apply = () => document.body.classList.toggle('player', !tune && (forced || mq.matches));
+  mq.addEventListener('change', apply);
+  apply();
+  const scrub = document.getElementById('mScrub');
+  document.getElementById('mRestart').onclick = () => {
+    sim.scoreT = 0; sim.score && sim.score.seek(0); scrub.value = 0;
+  };
+  document.getElementById('mPlay').onclick = () => {
+    sim.scoreOn = !sim.scoreOn;
+    if (sim.scoreOn && sim.score) sim.score.seek(sim.scoreT);
+  };
+  scrub.oninput = () => {
+    sim.scoreT = parseFloat(scrub.value);
+    if (sim.score) sim.score.seek(sim.scoreT);
+  };
+})();
+
+// --- boot -------------------------------------------------------------------------
+
+document.getElementById('startBtn').onclick = async () => {
+  document.getElementById('overlay').remove();
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const comp = new DynamicsCompressorNode(ctx, { threshold: -18, knee: 20, ratio: 6, attack: 0.01, release: 0.3 });
+  const master = new GainNode(ctx, { gain: 1 });
+  // voicing chain (spec §5.5): tone shaping + dark reverb = the sound bath
+  const T = sim.params.timbre;
+  const shelf = new BiquadFilterNode(ctx, { type: 'highshelf', frequency: T.shelf_freq_hz, gain: T.shelf_gain_db });
+  const lowpass = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: T.lowpass_hz, Q: 0.5 });
+  const dryGain = new GainNode(ctx, { gain: Math.cos(T.reverb_wet * Math.PI / 2) });
+  const wetGain = new GainNode(ctx, { gain: Math.sin(T.reverb_wet * Math.PI / 2) });
+  const convolver = new ConvolverNode(ctx);
+  comp.connect(shelf).connect(lowpass);
+  lowpass.connect(dryGain).connect(master);
+  lowpass.connect(convolver).connect(wetGain).connect(master);
+  sim.audio = { ctx, comp, master, shelf, lowpass, dryGain, wetGain, convolver,
+    irCfg: null, bgEl: null };
+  rebuildReverbIR();
+
+  // Background survival (iOS Safari): route output through an <audio> element
+  // playing a MediaStream, with Media Session metadata — the page is then a
+  // "media player" and keeps sounding when backgrounded, locked, or behind the
+  // camera (photo mode). Pure WebAudio → ctx.destination dies on background.
+  try {
+    const streamDest = ctx.createMediaStreamDestination();
+    master.connect(streamDest);
+    const bgEl = new Audio();
+    bgEl.srcObject = streamDest.stream;
+    bgEl.setAttribute('playsinline', '');
+    await bgEl.play(); // inside the user gesture
+    sim.audio.bgEl = bgEl;
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: 'Leaves in the Wind', artist: 'Nearfield ensemble',
+      });
+      navigator.mediaSession.playbackState = 'playing';
+      navigator.mediaSession.setActionHandler('pause', () => {
+        sim.scoreOn = false;
+        navigator.mediaSession.playbackState = 'paused';
+      });
+      navigator.mediaSession.setActionHandler('play', () => {
+        sim.audio.bgEl?.play().catch(() => {});
+        if (sim.score) { sim.score.seek(sim.scoreT); sim.scoreOn = true; }
+        navigator.mediaSession.playbackState = 'playing';
+      });
+    }
+  } catch (_) {
+    master.connect(ctx.destination); // fallback: direct output
+  }
+
+  buildAudio();
+  sim.running = true;
+};
+
+// Re-arm audio after interruptions (lock/unlock, camera, calls).
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && sim.audio) {
+    sim.audio.ctx.resume().catch(() => {});
+    sim.audio.bgEl?.play().catch(() => {});
+  }
+});
+
+(async function init() {
+  await loadConfigs();
+  resize();
+  makeAgents(20);
+  buildPanel();
+  draw();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

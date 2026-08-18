@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nearfield — privacy</title>
+<style>
+  html, body { margin:0; background:#000; color:#d8d8de;
+               font:16px/1.7 -apple-system, "Helvetica Neue", sans-serif; }
+  main { max-width:560px; margin:0 auto; padding:10vh 24px; }
+  h1 { font-size:18px; letter-spacing:.4em; font-weight:600; }
+  h2 { font-size:14px; letter-spacing:.1em; color:#9a9aa6; margin-top:2.2em; }
+  a { color:#8a8aff; }
+  .dim { color:#9a9aa6; }
+</style>
+</head>
+<body>
+<main>
+  <h1>NEARFIELD</h1>
+  <p class="dim">Privacy policy · effective 2026-07-07</p>
+
+  <h2>The short version</h2>
+  <p>Nearfield has no accounts, no ads, no analytics SDKs, and no tracking.
+  We don't know who you are and don't want to.</p>
+
+  <h2>What the app senses, and where it goes</h2>
+  <p>When the app joins an ensemble, it sends the coordination server a
+  random device identifier (Apple's per-app "identifier for vendor") and your
+  device's model name, and receives a musical part in return. While playing,
+  it sends coarse ensemble telemetry about once per second: a wind/activity
+  level, a bloom level, which participant number your phone is currently
+  responding to, and a detune amount. That's the entire wire format.</p>
+  <p>Bluetooth is used only to sense which other participants are nearby;
+  signal-strength readings are processed on your phone and never uploaded.
+  Motion-sensor readings likewise never leave the device. The app records no
+  audio and has no microphone access.</p>
+
+  <h2>What we store</h2>
+  <p>The server keeps the roster and latest telemetry of the current
+  performance in memory to run the piece and its shared projection. Nothing
+  is written to a database; restarting the server forgets everything.</p>
+
+  <h2>What we share or sell</h2>
+  <p>Nothing, with no one.</p>
+
+  <h2>Contact</h2>
+  <p><a href="mailto:hikarutenshi111@gmail.com">hikarutenshi111@gmail.com</a></p>
+</main>
+</body>
+</html>

@@ -35,4 +35,5 @@ Carthage/Build/
 # Build artifacts
 build/
 *.app
-.testflight-delivery-id
+__pycache__/
+.gstack/

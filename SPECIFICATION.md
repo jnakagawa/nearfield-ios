@@ -192,48 +192,39 @@ function updateNativeProximity(distance, peerCount) {
 }
 ```
 
-## Multi-Peer Harmony
-
-Each peer is deterministically assigned a base note from a pentatonic scale based on a hash of their device name. This means:
-- The same device always gets the same note
-- Multiple nearby peers naturally form pentatonic chords
-- No coordination or synchronization needed between devices
-
-Pentatonic scale: C4, D4, E4, G4, A4, C5, D5, E5
-
-## Sound Design
-
-Each peer's audio chain:
-```
-Sine Osc ──┐
-            ├──► Peer Gain ──► StereoPanner ──► Master Gain ──┬──► Destination
-Triangle Osc┘                                                  └──► Delay ──► Feedback ──► Delay
-                                                                         └──► Wet Gain ──► Destination
-```
-
-- **Layered oscillators**: Sine + soft triangle (15% blend) for warmth
-- **Delay reverb**: 300ms delay with 25% feedback, 15% wet mix
-- **Spatial panning**: `StereoPannerNode` driven by UWB `horizontalAngle` or `directionX`
-- **Exponential gain**: `Math.pow(normalized, 2.5)` for natural proximity fade-in
-
 ## Proximity → Sound Mapping
 
-Per-peer distance thresholds (exponential gain curves):
+Distance thresholds for harmonic unlocking:
 
-| Distance     | Effect                          | Gain Curve           |
-|--------------|--------------------------------|----------------------|
-| > 3m         | Silent                         | 0                    |
-| 1.5-3m       | Peer base note fades in        | exponential ramp     |
-| 1-1.5m       | + Octave (2x) emerges          | exponential ramp     |
-| 0.5-1m       | + Fifth (1.5x)                 | exponential ramp     |
-| < 0.5m       | + Major Third (1.25x)          | full chord           |
+| Distance     | Effect                          | Harmonic Gain    |
+|--------------|--------------------------------|------------------|
+| > 2m         | No harmonics                   | All at 0         |
+| 1-2m         | Octave (2x) fades in           | h1: 0→0.2        |
+| 0.6-1m       | + Fifth (1.5x)                 | h1+h2            |
+| 0.3-0.6m     | + Major Third (1.25x)          | h1+h2+h3         |
+| < 0.3m       | Full harmonic richness         | All at max (0.2) |
 
-## 3D Visualization
+Implementation:
 
-- Connecting lines between center sphere and each peer sphere
-- Line opacity follows exponential proximity curve (brighter when closer)
-- Color shifts from blue (#4a9eff) to warm white (#ffddff) at close range
-- Provides visual feedback of harmonic connections between participants
+```javascript
+function updateHarmonics() {
+    if (!isPlaying || proximityDistance < 0 || proximityDistance > 2) {
+        harmonicGains.forEach(g => g.gain.value = 0);
+        return;
+    }
+
+    // 0m = full harmonics, 2m = no harmonics
+    const proximityLevel = 1 - (proximityDistance / 2);
+    const maxGain = 0.2;
+
+    harmonicGains.forEach((gain, i) => {
+        // Each harmonic has a threshold before it starts
+        const threshold = (i + 1) * 0.25;  // 0.25, 0.5, 0.75
+        const level = Math.max(0, (proximityLevel - threshold) / (1 - threshold));
+        gain.gain.value = level * maxGain;
+    });
+}
+```
 
 ## Required Info.plist Entries
 

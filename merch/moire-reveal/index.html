@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nearfield — moiré-magnifier cling decoder (alignment-tolerant)</title>
+<style>
+  :root{ color-scheme: dark; }
+  *{ box-sizing: border-box; margin: 0; }
+  body{
+    background: #060608; color: #e8e8ee;
+    font: 15px/1.55 -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 24px 16px 56px; min-height: 100vh;
+  }
+  h1{ font-size: 18px; font-weight: 600; letter-spacing: .04em; }
+  .sub{ color: #8a8a96; font-size: 13px; margin: 4px 0 18px; max-width: 720px; text-align: center; }
+  .sub b{ color: #cfcfd8; font-weight: 500; }
+
+  .stagewrap{ position: relative; }
+  #stage{
+    display: block; background: #f4f4f8; border-radius: 12px;
+    width: min(1000px, 94vw); height: auto; aspect-ratio: 1000 / 660;
+    touch-action: none; cursor: grab; box-shadow: 0 0 0 1px #1c1c24, 0 24px 60px -30px #000;
+  }
+  #stage:active{ cursor: grabbing; }
+
+  .ctrls{
+    margin-top: 20px; display: flex; gap: 16px 24px; flex-wrap: wrap;
+    justify-content: center; align-items: flex-start;
+    background: #101016; border: 1px solid #23232c; border-radius: 14px;
+    padding: 16px 20px; max-width: 980px;
+  }
+  .ctrl{ display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #9a9aa6; min-width: 150px; }
+  .ctrl > .lab{ letter-spacing: .1em; text-transform: uppercase; font-size: 11px; color: #7f7f8b; }
+  .ctrl .val{ color: #9ec2ff; font-variant-numeric: tabular-nums; font-weight: 600; }
+  input[type=range]{ width: 170px; accent-color: #7fb2ff; }
+
+  .seg{ display: flex; border: 1px solid #33333e; border-radius: 8px; overflow: hidden; }
+  .seg button{ background: #15151c; color: #b9b9c4; border: 0; padding: 8px 13px; font-size: 12px; cursor: pointer; }
+  .seg button.on{ background: #2b3f66; color: #fff; }
+  .seg button:not(.on):hover{ background: #1c1c26; }
+
+  .btns{ display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .btns button{
+    background: #10101a; border: 1px solid #3a3a44; color: #c7c7d2;
+    padding: 8px 14px; border-radius: 999px; font-size: 12px; cursor: pointer; letter-spacing: .03em;
+  }
+  .btns button:hover{ border-color: #7fb2ff; color: #fff; }
+  .btns button.primary{ border-color: #4a4aff; color: #b9b9ff; }
+
+  .readout{
+    margin-top: 16px; font-size: 13px; color: #9a9aa6; letter-spacing: .02em;
+    font-variant-numeric: tabular-nums; text-align: center; max-width: 760px;
+  }
+  .readout b{ color: #9ec2ff; font-weight: 600; }
+  .readout .good{ color: #9fe0b0; font-weight: 600; }
+  .readout .warn{ color: #f2c98a; font-weight: 600; }
+
+  .note{ margin-top: 16px; max-width: 760px; color: #6f6f7b; font-size: 12.5px; text-align: center; }
+  .note b{ color: #9a9aa6; }
+</style>
+</head>
+<body>
+  <h1>NEARFIELD · moiré-magnifier cling decoder</h1>
+  <div class="sub">The base is a <b>stack of thin bands</b>, each a vertically-squashed copy of the wordmark — so it reads as <b>fine scrambled striping</b>, not text.Drop the transparent <b>cling</b> (a line grating at a <b>slightly different pitch</b>) over it and<b>moiré magnification</b> reconstructs the <b>nearfield</b> logotype, blown up ~12×. Because it's a <b>beat between two periods</b>, not a registered overlay, so it survives being <b>dropped on roughly</b>: <b>slide it anywhere</b> (translation is essentially free) and it's <b>forgiving on pitch/scale</b> (about 10-15%). The honest limit is <b>rotation</b> — the reveal tilts by M times the angle, so it stays crisp only within about <b>0.5-1&deg;</b> before shearing. (2-D dot mode trades text sharpness for more rotation slack; toggle to compare.)</div>
+
+  <div class="stagewrap">
+    <canvas id="stage" width="1000" height="660"></canvas>
+  </div>
+
+  <div class="ctrls">
+    <div class="ctrl">
+      <span class="lab">Technique</span>
+      <div class="seg" id="modeSeg">
+        <button data-mode="1d" class="on">1-D line (crisp text)</button>
+        <button data-mode="2d">2-D dot</button>
+      </div>
+      <div class="btns" style="margin-top:6px">
+        <button id="toggleCling" class="primary">hide cling</button>
+      </div>
+    </div>
+
+    <div class="ctrl">
+      <span class="lab">Cling offset Y · <span class="val" id="dyVal">0</span>px</span>
+      <input id="dyRange" type="range" min="-90" max="90" step="0.5" value="0">
+      <span class="lab" style="margin-top:2px">Cling offset X · <span class="val" id="dxVal">0</span>px</span>
+      <input id="dxRange" type="range" min="-90" max="90" step="1" value="0">
+    </div>
+
+    <div class="ctrl">
+      <span class="lab">Cling rotation · <span class="val" id="rotVal">0.0</span>°</span>
+      <input id="rotRange" type="range" min="-10" max="10" step="0.1" value="0">
+      <span class="lab" style="margin-top:2px">Cling pitch p<sub>r</sub> · <span class="val" id="prVal">12.00</span>px</span>
+      <input id="prRange" type="range" min="9.5" max="15" step="0.02" value="12.00">
+    </div>
+
+    <div class="ctrl">
+      <span class="lab">Base pitch p<sub>b</sub> (fixed print)</span>
+      <span class="val" id="pbVal" style="font-size:14px">11.0 px</span>
+      <span class="lab" style="margin-top:2px">Theme</span>
+      <div class="seg" id="themeSeg">
+        <button data-th="light">light</button>
+        <button data-th="dark" class="on">dark</button>
+      </div>
+    </div>
+
+    <div class="ctrl">
+      <span class="lab">Demo</span>
+      <div class="btns">
+        <button id="snapAlign" class="primary">perfect match</button>
+        <button id="snapOff">knock it askew</button>
+        <button id="resetAll">reset</button>
+        <button id="exportBtn">export PNGs</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="readout" id="readout">—</div>
+
+  <div class="note">
+    <b>Technique:</b> band-moiré magnification / sampling-moiré (Hutley; Kamal, Voelkel &amp; Alda 1998; Amidror; Hersch &amp; Chosson band-moiré, SIGGRAPH 2004 — the effect on banknote threads). <b>1-D line</b> (default, best for text): base = thin bands at pitch p<sub>b</sub>, each a vertically-squashed whole wordmark; cling = a line grating at p<sub>r</sub> near p<sub>b</sub>; sampling magnifies vertically by <b>M = p<sub>r</sub>/(p<sub>r</sub>-p<sub>b</sub>)</b> while horizontal stays 1:1, so letters keep full crispness. A cling shift moves the reveal by M times the shift (optical speedup) — translation just repositions the (periodic) word, so it's essentially free. Wrong p<sub>r</sub> just rescales M — forgiving to about 10-15%. The catch: a rotation tilts the reveal by M times the angle, which for a 1-D magnifier <i>shears</i> the vertical mapping, so it holds only to about 0.5-1&deg;. <b>2-D dot</b> mode tiles the same idea into a few LARGE copies: the base lays the whole wordmark across a wide period and squashes it into thin bands; a lattice of apertures that are wide in x (full letter detail) and short in y magnifies vertically by M<sub>y</sub> = p<sub>c</sub>/(p<sub>c</sub>-p<sub>b</sub>), so a handful of big, bold copies fill the field (lower the pitch to grow them). The wide-x aperture keeps text bold and legible but, like 1-D, shears under rotation (~0.6-1&deg;). Drag the canvas to move the cling; arrow keys nudge (Shift = 5px).
+  </div>
+
+<script>
+'use strict';
+
+/* ============================================================================
+   NEARFIELD — moiré-magnifier (band-moiré) cling decoder
+   ----------------------------------------------------------------------------
+   TECHNIQUE (why this one)
+   ------------------------
+   Requirement: a scrambled-looking printed BASE that reveals the nearfield
+   logotype through a TRANSPARENT MOIRÉ CLING, and — the whole point — the
+   reveal must survive being dropped on ROUGHLY (translation, small rotation,
+   slight pitch/scale error), unlike a barrier-grid decoder that needs
+   pixel-perfect registration.
+
+   The technique that satisfies all three is 1-D BAND-MOIRÉ MAGNIFICATION
+   (a.k.a. the "moiré magnifier": Hutley 1994; Kamal/Völkel/Alda 1998;
+   Amidror, "The Theory of the Moiré Phenomenon"; the sampling-moiré features
+   on modern banknote security threads — Swedish krona, US $100, etc.).
+
+     * BASE LAYER  — a periodic stack of thin horizontal "base bands" at pitch
+       p_b. Into each band we squash ONE full copy of the logotype (compressed
+       vertically to ~p_b px tall). Stacked densely, the eye can't resolve the
+       tiny per-band copies: it reads as fine horizontal scramble/texture, and
+       the word is NOT legible unaided.  (This is a *phase/level* encoding: the
+       information is in WHERE ink sits within each band, i.e. the local shift.)
+
+     * REVEALING LAYER (cling) — a transparent horizontal LINE GRATING: thin
+       clear slits at pitch p_r ≈ p_b, the rest opaque. Each slit samples one
+       thin horizontal slice of the base. Because p_r ≠ p_b, successive slits
+       sample PROGRESSIVELY SHIFTED rows within their base bands. Stacking those
+       sampled slices reconstructs the per-band copy MAGNIFIED VERTICALLY by
+
+               M = p_b / (p_r − p_b)                         (band-moiré magnification)
+
+       e.g. p_b = 6.0, p_r = 6.3  →  M = 6/0.3 = 20×.  A 6px-tall squashed logo
+       becomes a ~120px-tall readable logo.
+
+   WHY IT'S ALIGNMENT-TOLERANT (the core claim)
+   --------------------------------------------
+     - TRANSLATION: shifting the cling in Y by δ moves the revealed logo by M·δ
+       ("optical speedup"). It doesn't appear/disappear — it SLIDES. So any Y
+       offset just repositions the (periodically-repeating) logo; there's always
+       a copy in view. X-translation slides it horizontally 1:1. => forgiving.
+     - ROTATION: a cling rotation θ turns the moiré into a rotated/sheared logo
+       at ≈ M·θ. Coherent, just tilted. Legible for several degrees.
+     - PITCH / SCALE error: wrong p_r changes M continuously → the logo grows or
+       shrinks (and if p_r crosses p_b, flips). Never shatters; just rescales.
+     None of these is a registration cliff — that's the entire advantage over a
+     barrier grid (which is a 1/N sampling mask: off by one slit width and the
+     wrong sub-frame shows). Here there are no "frames"; there is one continuous
+     beat, and every misalignment is a smooth affine move of the SAME logo.
+
+   WHY NOT the alternatives
+     - Barrier-grid / parallax interlace: needs sub-pixel registration (the
+       prior decoder-sim). Rejected by the tolerance requirement.
+     - Visual cryptography / random-dot XOR: needs EXACT pixel overlay; one
+       pixel off = noise. Rejected.
+     - Pure phase-shift line-moiré (two matched gratings, logo in the phase):
+       also works and is very tolerant, but the base looks like an obvious
+       striped grating, less "scrambled". Band-moiré gives a busier, more
+       texture-like base while keeping the same beat-based tolerance, so we use
+       it. (We still lean on the phase idea: the logo lives in the intra-band
+       shift.)
+
+   IMPLEMENTATION NOTES
+     - Everything is CPU raster (ImageData) so it renders identically headless
+       (no WebGL needed) and exports cleanly to PNG.
+     - The base is baked ONCE (per theme). The cling grating is generated as a
+       function of p_r/rotation/offset and composited over the base each frame;
+       the moiré falls out of the sampling automatically — we do NOT draw the
+       logo at reveal time, it emerges from base×cling.
+   ========================================================================= */
+
+const W = 1000, H = 660;
+
+// ---- theme ----------------------------------------------------------------
+// The cling bars are printed in the PAPER colour so they vanish into the ground;
+// you read the ink that survives under the slits. Dark theme reads best for the
+// reveal (bright ink logo on near-black) — noted in the report.
+const THEME = {
+  light: { paper: [0xf4,0xf4,0xf8], ink: [0x0a,0x0a,0x10], bar: [0xf4,0xf4,0xf8] },
+  dark:  { paper: [0x08,0x08,0x0c], ink: [0xf2,0xf2,0xf6], bar: [0x08,0x08,0x0c] },
+};
+
+const cv  = document.getElementById('stage');
+const ctx = cv.getContext('2d', { willReadFrequently: true });
+
+// P_B — base band pitch (px), the FIXED printed pitch. Each band holds one full
+// copy of the wordmark compressed to P_B tall. This is the central trade-off of a
+// moiré magnifier: the band must be TALL enough that a compressed "nearfield" is
+// still reconstructable, yet SHORT enough that the stacked bands read as scramble
+// (not as individually-legible tiny logos). ~11px lands there for this wordmark.
+const P_B = 11.0;
+
+// 2D magnifier cell — ANISOTROPIC BAND array. The earlier design put one whole tiny
+// wordmark in every square-ish cell and sampled it with a round pinhole at ~cell pitch;
+// that produced NO magnification — the pinholes just revealed the raw tiny cells, so the
+// field filled with a swarm of dozens of little wordmarks (the reported bug). The reveal
+// size is the moiré BEAT, and with a round point-pinhole an 8-glyph wordmark reconstructs
+// at only ~M samples across (dim, dotty, illegible). We can't get BIG + BOLD + LEGIBLE +
+// scrambled-base all at once from a round pinhole, so 2-D now works like the 1-D band
+// magnifier but tiled and 2-D-sampled:
+//   BASE  — the whole wordmark laid ACROSS a wide X period P_CX (a few copies fit the art)
+//           and squashed into thin P_CY-tall bands in Y (so, like 1-D, the base reads as
+//           fine horizontal striping / scramble, NOT text).
+//   CLING — a lattice of apertures WIDE in x (rxFrac, keeps full horizontal letter detail,
+//           1:1 in x) and SHORT in y (ryFrac, samples one row per band). Because the y
+//           aperture pitch p_c is slightly > P_CY, successive rows sample progressively
+//           shifted band-rows → the wordmark is MAGNIFIED IN Y by M = P_CY/(p_c−P_CY) and
+//           tiles cleanly, giving a HANDFUL of large, bold, legible copies (art_w/P_CX
+//           across × ~art_h/(M·P_CY) down). The trade vs the old round dot: the wide-x
+//           aperture shears under rotation like 1-D (a few °), rather than staying a
+//           rigidly-rotated dot cloud — but the old dot cloud was an illegible dim mush,
+//           so this is the honest win for the stated "bigger/bolder/legible" goal.
+const P_CY = 11.0;                                // base band height (px) — thin => scramble
+const P_CX = 220.0;                               // base wordmark X period (px) => ~4 across
+const P_C  = P_CY;                                // (kept name for readout: the Y base pitch)
+const CELL_AR = P_CX / P_CY;                      // (kept for export/readout compatibility)
+const DOT_RX = 0.92;                              // aperture WIDTH as fraction of x pitch (fixed
+                                                  // wide => keeps horizontal letter detail).
+                                                  // aperture HEIGHT is S.dotFrac (of the y pitch).
+const P_CX_PIN = 44.0;                            // pinhole COLUMN pitch (x) — dense dot cols
+
+const S = {
+  mode: '1d',      // '1d' = line-grating band magnifier: renders the wordmark
+                   //        CRISPLY, hugely translation/scale-tolerant, but rotation
+                   //        shears it (±~0.5-1°). This is the technique that meets
+                   //        scrambled-base + moiré-cling + slide-tolerance for TEXT.
+                   // '2d' = dot-array magnifier: rotation-tolerant in principle but
+                   //        reconstructs text only coarsely (≈M samples across) —
+                   //        good for bold symbols, weak for a fine wordmark.
+  theme: 'dark',
+  // --- 1D line-grating params ---
+  p_r: 12.0,       // cling grating pitch (px). p_b=11 => M=p_r/(p_r-p_b)=12 (one
+                   // ~130px-tall copy; balances reveal size vs a little rotation room).
+  slitDuty: 0.14,  // clear-slit fraction. THIN — a wide slit smears logo rows.
+  // --- 2D dot-array params ---
+  p_c: 12.25,      // cling aperture y-pitch (px). Just above P_CY=11 => My=P_CY/(p_c−P_CY).
+                   // p_c=12.25 => Δ=1.25 => My≈8.8 (copy ≈ My·P_CY ≈ 97px tall; ~5 rows of
+                   // big bold copies). LOWER p_c (toward 11) => bigger My => TALLER copies;
+                   // higher => shorter. (This is the fixed "slider knot": smaller Δ = bigger
+                   // reveal, and the range stays valid because P_CY is only 11.)
+  dotFrac: 0.60,   // aperture HEIGHT as a fraction of the y pitch (kept name for the slider/
+                   // export contract). Bigger => more rows sampled per band => bolder, denser
+                   // reveal (a touch more y-blur). The x aperture is fixed wide (DOT_RX) so
+                   // horizontal letter detail stays crisp.
+  // --- shared cling placement ---
+  dx: 0, dy: 0,    // cling translation (px)
+  rot: 0,          // cling rotation (deg)
+  clingVisible: true,
+};
+
+// ============================================================================
+//  LOGO MASK — load logotype.png (thin double-outline wordmark), threshold the
+//  dark outline, flood-fill interiors so letters read as SOLID BOLD ink. This is
+//  the same solidify recipe as the prior decoder-sim, adapted here. Produces a
+//  1-bit mask (logoBmp) over a LOGO_W×LOGO_H grid, plus its bounding box.
+// ============================================================================
+let logoImg = null, logoReady = false;
+const LOGO_W = 900, LOGO_H = 300;          // working raster for the solid logo
+let logoBmp = null;                        // Uint8Array LOGO_W*LOGO_H, 1 = ink
+
+function dilate1(mask, w, h, r){
+  const tmp = new Uint8Array(w*h), out = new Uint8Array(w*h);
+  for (let y=0;y<h;y++){ const row=y*w;
+    for (let x=0;x<w;x++){ let on=0; const lo=Math.max(0,x-r), hi=Math.min(w-1,x+r);
+      for (let xx=lo;xx<=hi;xx++){ if(mask[row+xx]){on=1;break;} } tmp[row+x]=on; } }
+  for (let x=0;x<w;x++){
+    for (let y=0;y<h;y++){ let on=0; const lo=Math.max(0,y-r), hi=Math.min(h-1,y+r);
+      for (let yy=lo;yy<=hi;yy++){ if(tmp[yy*w+x]){on=1;break;} } out[y*w+x]=on; } }
+  return out;
+}
+
+function buildLogoBmp(){
+  logoBmp = new Uint8Array(LOGO_W*LOGO_H);
+  if (!logoReady) return;
+  // draw the wordmark centered, fit to ~86% width
+  const t = document.createElement('canvas'); t.width = LOGO_W; t.height = LOGO_H;
+  const tc = t.getContext('2d', { willReadFrequently: true });
+  tc.clearRect(0,0,LOGO_W,LOGO_H);
+  const iw = logoImg.width, ih = logoImg.height;
+  const scale = Math.min(LOGO_W*0.92/iw, LOGO_H*0.82/ih);
+  const dw = iw*scale, dh = ih*scale;
+  tc.drawImage(logoImg, (LOGO_W-dw)/2, (LOGO_H-dh)/2, dw, dh);
+  const d = tc.getImageData(0,0,LOGO_W,LOGO_H).data;
+
+  let outline = new Uint8Array(LOGO_W*LOGO_H);
+  for (let i=0,p=0;i<LOGO_W*LOGO_H;i++,p+=4){
+    const covered = d[p+3] > 0;
+    const lum = 0.299*d[p]+0.587*d[p+1]+0.114*d[p+2];
+    outline[i] = (covered && lum < 128) ? 1 : 0;
+  }
+  const closed = dilate1(outline, LOGO_W, LOGO_H, 2);
+  // flood exterior from border
+  const ext = new Uint8Array(LOGO_W*LOGO_H); const st = [];
+  const push = (x,y)=>{ const i=y*LOGO_W+x; if(!closed[i]&&!ext[i]){ext[i]=1;st.push(i);} };
+  for (let x=0;x<LOGO_W;x++){ push(x,0); push(x,LOGO_H-1); }
+  for (let y=0;y<LOGO_H;y++){ push(0,y); push(LOGO_W-1,y); }
+  while (st.length){ const i=st.pop(); const x=i%LOGO_W, y=(i/LOGO_W)|0;
+    if(x>0)push(x-1,y); if(x<LOGO_W-1)push(x+1,y); if(y>0)push(x,y-1); if(y<LOGO_H-1)push(x,y+1); }
+  for (let i=0;i<LOGO_W*LOGO_H;i++) logoBmp[i] = (closed[i] || !ext[i]) ? 1 : 0;
+}
+
+// sample the solid logo at continuous (u,v) in [0,1]² -> 1 (ink) / 0 (paper)
+function sampleLogo(u, v){
+  if (!logoBmp) return 0;
+  if (u < 0 || u >= 1 || v < 0 || v >= 1) return 0;
+  const x = (u*LOGO_W)|0, y = (v*LOGO_H)|0;
+  return logoBmp[y*LOGO_W + x];
+}
+
+// ============================================================================
+//  BASE LAYER  — the printed sticker. A stack of horizontal base bands at pitch
+//  p_b. Band index n covers rows [n·p_b, (n+1)·p_b). Within a band, the vertical
+//  fraction fv = (y - n·p_b)/p_b in [0,1) selects a row of the logo. The logo is
+//  placed once over the whole art area (spanning many bands in the *revealed*
+//  image) — i.e. each band shows the SAME logo but only the thin horizontal
+//  slice of it that corresponds to that band's vertical position in the final
+//  magnified image. Concretely: the revealed image repeats every p_m = M·p_b in
+//  Y; within one moiré period the logo maps 1:1. So for a pixel at (x,y):
+//     phase   = (y / p_b)                         // which band + where in it
+//     bandV   = frac(phase)                       // 0..1 within the band
+//     the base ENCODES, at intra-band position bandV, the logo row that the
+//     moiré will place there. Equivalent compact construction: base ink at (x,y)
+//     iff  sampleLogo( ux, frac( y / p_b ) )  — each band carries a full 1px-thin
+//     copy of the logo squashed to p_b tall. Densely stacked => scrambled look;
+//     the cling's slightly-off sampling re-expands one row per band => the moiré.
+//
+//  To make the base look SCRAMBLED (not like obvious stripes of tiny logos) we
+//  also fold in the logo's own structure as a phase jitter and add a faint
+//  paper grain, so the print reads as woven texture. The moiré reveal is
+//  unaffected (it integrates over the band).
+// ============================================================================
+const baseCanvas = document.createElement('canvas');
+baseCanvas.width = W; baseCanvas.height = H;
+const baseCtx = baseCanvas.getContext('2d', { willReadFrequently: true });
+let baseData = null;
+
+// art rectangle where the moiré lives (leave a margin so the reveal has room)
+const ART = { x0: 60, y0: 60, x1: W-60, y1: H-60 };
+
+function hash2(x, y){ // cheap deterministic noise 0..1
+  let h = (x*374761393 + y*668265263) ^ 0x9e3779b9;
+  h = Math.imul(h ^ (h>>>13), 1274126177);
+  return ((h ^ (h>>>16)) >>> 0) / 4294967296;
+}
+
+function buildBase(){
+  const th = THEME[S.theme];
+  const PAPER = th.paper, INK = th.ink;
+  const img = baseCtx.createImageData(W, H);
+  const o = img.data;
+  const aw = ART.x1 - ART.x0, ah = ART.y1 - ART.y0;
+
+  const SS = 4;   // vertical supersampling so thin strokes of the compressed logo
+                  // survive the ~11px band (anti-aliased coverage, not 1-bit).
+  for (let y=0;y<H;y++){
+    for (let x=0;x<W;x++){
+      const p = (y*W + x)*4;
+      let r,g,b;
+      let inside = (x>=ART.x0 && x<ART.x1 && y>=ART.y0 && y<ART.y1);
+      if (inside){
+        const ux = (x - ART.x0) / aw;               // horizontal position in logo
+        // Each band carries the WHOLE wordmark compressed to P_B tall. The intra-
+        // band fraction bv in [0,1) is the logo's own vertical coordinate. Super-
+        // sample bv across the pixel so a compressed stroke that falls between
+        // integer logo-rows still leaves partial ink (keeps letters connected).
+        let cov = 0;
+        for (let s=0;s<SS;s++){
+          let bv = ((y + (s+0.5)/SS - ART.y0) / P_B) % 1;
+          if (bv < 0) bv += 1;
+          cov += sampleLogo(ux, bv);
+        }
+        cov /= SS;                                   // 0..1 ink coverage
+        r = PAPER[0] + (INK[0]-PAPER[0])*cov;
+        g = PAPER[1] + (INK[1]-PAPER[1])*cov;
+        b = PAPER[2] + (INK[2]-PAPER[2])*cov;
+      } else {
+        // faint paper grain outside the art so blanks aren't dead-flat.
+        const n = hash2(x, y) * 8 | 0;
+        r = PAPER[0] + (S.theme==='dark' ? n : -n);
+        g = PAPER[1] + (S.theme==='dark' ? n : -n);
+        b = PAPER[2] + (S.theme==='dark' ? n : -n);
+      }
+      o[p]=r; o[p+1]=g; o[p+2]=b; o[p+3]=255;
+    }
+  }
+  baseCtx.putImageData(img, 0, 0);
+  baseData = baseCtx.getImageData(0,0,W,H).data;
+}
+
+// ============================================================================
+//  2D BASE  — the whole wordmark laid across a WIDE X period P_CX (so a few copies
+//  span the art) and squashed into thin P_CY-tall bands in Y. Densely stacked, the
+//  ~P_CY-tall band copies read as fine horizontal striping / scramble — the word is
+//  NOT legible unaided (same encoding idea as the 1-D base). The 2-D aperture cling
+//  keeps x 1:1 (full letter detail) and magnifies Y by My = P_CY/(p_c−P_CY), tiling
+//  the wordmark into a handful of large, bold copies. (See the P_CX/P_CY block above
+//  for why this replaced the round-pinhole dot array, which never magnified and just
+//  showed a swarm of tiny raw cells.)
+// ============================================================================
+const LOGO_AR = LOGO_W / LOGO_H;                 // ≈3 (wordmark aspect)
+// sample the COMPLETE wordmark mapped into a base cell (cu,cv)∈[0,1)² -> ink coverage.
+// cu spans one wordmark across P_CX (full horizontal detail); cv spans one wordmark
+// squashed into a P_CY band (the vertical scramble the magnifier re-expands).
+function sampleCell(cu, cv){
+  return sampleLogo(cu, cv);                       // fill the whole cell
+}
+
+function build2DBase(){
+  const th = THEME[S.theme];
+  const PAPER = th.paper, INK = th.ink;
+  const img = baseCtx.createImageData(W, H);
+  const o = img.data;
+  const SSX = 2, SSY = 5;                           // supersample: finer in Y (thin bands)
+  for (let y=0;y<H;y++){
+    for (let x=0;x<W;x++){
+      const p = (y*W + x)*4;
+      let r,g,b;
+      const inside = (x>=ART.x0 && x<ART.x1 && y>=ART.y0 && y<ART.y1);
+      if (inside){
+        let cov = 0;
+        for (let sy=0;sy<SSY;sy++) for (let sx=0;sx<SSX;sx++){
+          let cu = (((x + (sx+0.5)/SSX - ART.x0) / P_CX) % 1);
+          let cv = (((y + (sy+0.5)/SSY - ART.y0) / P_CY) % 1);
+          if (cu<0) cu+=1; if (cv<0) cv+=1;
+          cov += sampleCell(cu, cv);
+        }
+        cov /= (SSX*SSY);
+        r = PAPER[0] + (INK[0]-PAPER[0])*cov;
+        g = PAPER[1] + (INK[1]-PAPER[1])*cov;
+        b = PAPER[2] + (INK[2]-PAPER[2])*cov;
+      } else {
+        const n = hash2(x, y) * 8 | 0;
+        r = PAPER[0] + (S.theme==='dark' ? n : -n);
+        g = PAPER[1] + (S.theme==='dark' ? n : -n);
+        b = PAPER[2] + (S.theme==='dark' ? n : -n);
+      }
+      o[p]=r; o[p+1]=g; o[p+2]=b; o[p+3]=255;
+    }
+  }
+  baseCtx.putImageData(img, 0, 0);
+  baseData = baseCtx.getImageData(0,0,W,H).data;
+}
+
+function rebuildBase(){ if (S.mode==='2d') build2DBase(); else buildBase(); }
+
+// ============================================================================
+//  CLING — transparent horizontal line grating, pitch p_r, rotation rot, offset
+//  (dx,dy). Bars are PAPER colour (opaque), slits are transparent. We composite
+//  it over the base: on a bar pixel we paint the paper/bar colour (covering the
+//  base); on a slit pixel we leave the base showing. The moiré emerges because
+//  the slit sampling beats against the base bands.
+//
+//  The grating phase along the cling's local Y axis:
+//      yr = -sin(rot)*(x-cx) + cos(rot)*(y-cy) - dy
+//      phase = frac(yr / p_r)
+//      slit  = phase < slitDuty
+//  (dx enters via the rotation pivot / horizontal slide of the whole cling.)
+// ============================================================================
+function composite(){
+  ctx.putImageData(new ImageData(new Uint8ClampedArray(baseData), W, H), 0, 0);
+  if (!S.clingVisible){ updateReadout(); return; }
+
+  const th = THEME[S.theme];
+  const BAR = th.bar;
+  const img = ctx.getImageData(0,0,W,H);
+  const d = img.data;
+  const rad = S.rot * Math.PI/180;
+  const cs = Math.cos(rad), sn = Math.sin(rad);
+  const cx = W/2, cy = H/2;
+
+  if (S.mode === '1d'){
+    // 1D horizontal line grating: bar where local-y phase >= slit duty.
+    const pr = S.p_r, duty = S.slitDuty;
+    for (let y=0;y<H;y++){
+      const dyc = y - cy;
+      for (let x=0;x<W;x++){
+        const dxc = x - cx - S.dx;
+        const yr = -sn*dxc + cs*dyc - S.dy;
+        let ph = (yr / pr) % 1; if (ph < 0) ph += 1;
+        if (ph >= duty){ const p=(y*W+x)*4; d[p]=BAR[0]; d[p+1]=BAR[1]; d[p+2]=BAR[2]; }
+      }
+    }
+  } else {
+    // 2D aperture lattice — WIDE in x (rx≈DOT_RX of the x pitch: keeps horizontal
+    // letter detail, so x stays ~1:1), SHORT in y (ry≈dotFrac of the y pitch: samples
+    // one band-row, so successive rows sweep the band → Y magnification My=P_CY/(p_c−P_CY)).
+    // Transparent inside each ellipse, opaque bar outside. Rotation rotates the whole
+    // lattice about center; the wide-x aperture means a rotation shears the reveal (like
+    // 1-D) rather than rigidly rotating it — the price of a bold, legible 2-D reveal.
+    const pcy = S.p_c, pcx = P_CX_PIN;             // y (magnifier) pitch, x column pitch
+    const rx = DOT_RX * 0.5, ry = S.dotFrac * 0.5; // aperture semi-axes in pitch units
+    const rx2 = rx*rx, ry2 = ry*ry;
+    for (let y=0;y<H;y++){
+      const dyc = y - cy;
+      for (let x=0;x<W;x++){
+        const dxc = x - cx - S.dx;
+        const lx =  cs*dxc + sn*dyc;
+        const ly = -sn*dxc + cs*dyc - S.dy;
+        let fx = ((lx % pcx)/pcx); if (fx<0) fx+=1; if (fx>0.5) fx-=1;   // -0.5..0.5 in pitch units
+        let fy = ((ly % pcy)/pcy); if (fy<0) fy+=1; if (fy>0.5) fy-=1;
+        if ((fx*fx)/rx2 + (fy*fy)/ry2 > 1){ const p=(y*W+x)*4; d[p]=BAR[0]; d[p+1]=BAR[1]; d[p+2]=BAR[2]; }
+        // else inside aperture -> leave base pixel
+      }
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  drawClingFrame();
+  updateReadout();
+}
+
+// faint outline of the cling extent (purely cosmetic; the grating fills stage)
+function drawClingFrame(){
+  ctx.save();
+  ctx.strokeStyle = S.theme==='light' ? 'rgba(40,60,120,0.4)' : 'rgba(159,194,255,0.45)';
+  ctx.lineWidth = 1.25; ctx.setLineDash([6,5]);
+  ctx.strokeRect(ART.x0+0.5, ART.y0+0.5, (ART.x1-ART.x0)-1, (ART.y1-ART.y0)-1);
+  ctx.restore();
+}
+
+// ---- readout: quantify current state + predicted magnification -------------
+function updateReadout(){
+  const el = document.getElementById('readout'); if (!el) return;
+  const is2d = S.mode === '2d';
+  const pb = is2d ? P_CY : P_B;
+  const pr = is2d ? S.p_c : S.p_r;
+  if (!S.clingVisible){
+    if (is2d)
+      el.innerHTML = `<b>raw 2-D base print</b> · ${((ART.y1-ART.y0)/P_CY|0)} bands @ ${P_CY.toFixed(2)}px, each a nearfield squashed across ${P_CX.toFixed(0)}px · reads as fine striping, logo not readable unaided`;
+    else
+      el.innerHTML = `<b>raw 1-D base print</b> · stack of ${((ART.y1-ART.y0)/P_B|0)} bands @ ${P_B.toFixed(2)}px, each a squashed nearfield copy · logo not readable unaided`;
+    return;
+  }
+  const dp = pr - pb;
+  const M = Math.abs(dp) < 1e-4 ? Infinity : pb/dp;          // signed magnification (2D) / p_r/dp (1D) ≈ same for small Δ
+  const M1 = Math.abs(dp) < 1e-4 ? Infinity : (is2d ? pb/dp : pr/dp);
+  const p_m = Math.abs(M1) * pb;
+  const flip = M1 < 0 ? ' (flipped)' : '';
+  // rotation-smear estimate: revealed image rotates ~M·θ. Both modes now shear (the 2-D
+  // reveal uses a wide-x aperture, so it magnifies/reconstructs in Y and shears in X on
+  // rotation, like 1-D) — hold to ~0.6-1°.
+  const revRot = Math.abs(M1) * Math.abs(S.rot);
+  const copiesX = is2d ? Math.round((ART.x1-ART.x0)/P_CX) : 1;
+  const copyH = Math.abs(p_m);                              // revealed copy height (px)
+  const copiesY = is2d && copyH>1 ? Math.round((ART.y1-ART.y0)/copyH) : 0;
+  let health = 'good', hword = 'clearly revealed';
+  if (Math.abs(S.rot) > 0.8){ health='warn'; hword='rotation shearing the reveal'; }
+  if (Math.abs(M1) > 40 || Math.abs(M1) < 3){ health='warn'; hword='pitch far off — copies very '+(Math.abs(M1)>40?'tall':'short'); }
+  const Mstr = isFinite(M1) ? (M1>0?'+':'')+M1.toFixed(1)+'×' : '∞ (pitches equal)';
+  el.innerHTML =
+    `<span class="${health}">${hword}</span> · <b>${is2d?'2-D dot':'1-D line'}</b> · ` +
+    `p<sub>b</sub> ${pb.toFixed(2)} · p<sub>r</sub> ${pr.toFixed(2)} · Δp ${dp>=0?'+':''}${dp.toFixed(2)} · ` +
+    `M<sub>${is2d?'y':''}</sub> <b>${Mstr}${flip}</b> · ` +
+    (is2d ? `copies ≈ <b>${copiesX}×${copiesY}</b> @ ${isFinite(copyH)?copyH.toFixed(0):'∞'}px tall · ` : `moiré cell ${isFinite(p_m)?p_m.toFixed(0)+'px':'∞'} · `) +
+    `offset (${S.dx.toFixed(0)}, ${S.dy.toFixed(1)})px · rot <b>${S.rot.toFixed(1)}°</b>` +
+    (isFinite(revRot)?` · revealed tilt ≈ ${revRot.toFixed(0)}°`:'');
+}
+
+// ============================================================================
+//  Interaction — drag on canvas moves the cling; arrow keys nudge.
+// ============================================================================
+let dragging=false, lastX=0, lastY=0;
+function toCanvas(e){
+  const r = cv.getBoundingClientRect();
+  return { x:(e.clientX-r.left)*(W/r.width), y:(e.clientY-r.top)*(H/r.height) };
+}
+cv.addEventListener('pointerdown', e=>{ if(!S.clingVisible)return; const p=toCanvas(e); dragging=true; lastX=p.x; lastY=p.y; cv.setPointerCapture(e.pointerId); });
+cv.addEventListener('pointermove', e=>{ if(!dragging)return; const p=toCanvas(e); S.dx+=(p.x-lastX); S.dy+=(p.y-lastY); lastX=p.x; lastY=p.y; syncInputs(); dirty=true; });
+cv.addEventListener('pointerup', ()=>{ dragging=false; });
+cv.addEventListener('pointercancel', ()=>{ dragging=false; });
+window.addEventListener('keydown', e=>{
+  if(!S.clingVisible) return;
+  const step = e.shiftKey ? 5 : 1; let used=true;
+  switch(e.key){
+    case 'ArrowLeft':  S.dx-=step; break;
+    case 'ArrowRight': S.dx+=step; break;
+    case 'ArrowUp':    S.dy-=step; break;
+    case 'ArrowDown':  S.dy+=step; break;
+    default: used=false;
+  }
+  if(used){ e.preventDefault(); syncInputs(); dirty=true; }
+});
+
+// ============================================================================
+//  Controls
+// ============================================================================
+const $ = id=>document.getElementById(id);
+
+// per-mode pitch config so one slider drives p_c (2D) or p_r (1D).
+// 2D: p_c is the aperture Y pitch just above P_CY=11. My=P_CY/(p_c−P_CY), so the range
+// 11.6..14 spans My≈18 (very tall copies) down to My≈3.7 (short); LOWER p_c = BIGGER reveal.
+const PITCH_CFG = {
+  '2d': { min:11.6, max:14,   step:0.01, get:()=>S.p_c, set:v=>S.p_c=v, pb:P_CY, align:12.25 },
+  '1d': { min:9.5,  max:15,   step:0.02, get:()=>S.p_r, set:v=>S.p_r=v, pb:P_B, align:12.0 },
+};
+function pitchCfg(){ return PITCH_CFG[S.mode]; }
+
+function syncInputs(){
+  const c = pitchCfg();
+  $('dyRange').value = S.dy; $('dyVal').textContent = S.dy.toFixed(1);
+  $('dxRange').value = S.dx; $('dxVal').textContent = S.dx.toFixed(0);
+  $('rotRange').value = S.rot; $('rotVal').textContent = S.rot.toFixed(1);
+  const pr = $('prRange'); pr.min=c.min; pr.max=c.max; pr.step=c.step; pr.value=c.get();
+  $('prVal').textContent = c.get().toFixed(2);
+  $('pbVal').textContent = c.pb.toFixed(1)+' px';
+}
+$('dyRange').addEventListener('input', e=>{ S.dy=+e.target.value; $('dyVal').textContent=S.dy.toFixed(1); dirty=true; });
+$('dxRange').addEventListener('input', e=>{ S.dx=+e.target.value; $('dxVal').textContent=S.dx.toFixed(0); dirty=true; });
+$('rotRange').addEventListener('input', e=>{ S.rot=+e.target.value; $('rotVal').textContent=S.rot.toFixed(1); dirty=true; });
+$('prRange').addEventListener('input', e=>{ pitchCfg().set(+e.target.value); $('prVal').textContent=(+e.target.value).toFixed(2); dirty=true; });
+$('modeSeg').addEventListener('click', e=>{
+  const b=e.target.closest('button'); if(!b)return;
+  S.mode=b.dataset.mode;
+  [...e.currentTarget.children].forEach(c=>c.classList.toggle('on', c===b));
+  // reset placement to that mode's clean match so the switch is legible.
+  S.dx=0; S.dy=0; S.rot=0; pitchCfg().set(pitchCfg().align);
+  rebuildBase(); syncInputs(); dirty=true;
+});
+$('themeSeg').addEventListener('click', e=>{
+  const b=e.target.closest('button'); if(!b)return;
+  S.theme=b.dataset.th;
+  [...e.currentTarget.children].forEach(c=>c.classList.toggle('on', c===b));
+  document.documentElement.style.colorScheme=S.theme;
+  cv.style.background = S.theme==='light' ? '#f4f4f8' : '#08080c';
+  rebuildBase(); dirty=true;
+});
+$('toggleCling').addEventListener('click', e=>{
+  S.clingVisible=!S.clingVisible;
+  e.target.textContent = S.clingVisible ? 'hide cling' : 'show cling';
+  dirty=true;
+});
+$('snapAlign').addEventListener('click', ()=>{ S.dx=0; S.dy=0; S.rot=0; pitchCfg().set(pitchCfg().align); syncInputs(); dirty=true; });
+$('snapOff').addEventListener('click', ()=>{
+  // deliberately askew: translate + rotate + pitch error, tuned per mode.
+  if (S.mode==='2d'){ S.dx=40; S.dy=14; S.rot=1.6; S.p_c=13.0; }  // slide + pitch off + tilt (2-D shears)
+  else { S.dx=60; S.dy=22; S.rot=0.4; S.p_r=13.0; }   // big slide + pitch off + tiny tilt
+  syncInputs(); dirty=true;
+});
+$('resetAll').addEventListener('click', ()=>{ S.dx=0; S.dy=0; S.rot=0; pitchCfg().set(pitchCfg().align); S.clingVisible=true; $('toggleCling').textContent='hide cling'; syncInputs(); dirty=true; });
+
+// ============================================================================
+//  PRINT EXPORT — two aligned PNGs (base opaque, cling transparent) at scale.
+//  base.png : the scrambled stack of bands (opaque).
+//  cling.png: transparent horizontal grating at p_r (opaque bars, clear slits).
+// ============================================================================
+async function postCanvas(c, name){
+  const blob = await new Promise(r=>c.toBlob(r,'image/png'));
+  try { const res = await fetch(name,{method:'POST',body:blob}); return res.ok; }
+  catch(_){ return false; }
+}
+window.__exportPrint = async (scale=3)=>{
+  const th = THEME[S.theme];
+  const EW=W*scale, EH=H*scale;
+  const aw=(ART.x1-ART.x0)*scale;
+  const ay0=ART.y0*scale, ax0=ART.x0*scale, ax1=ART.x1*scale, ay1=ART.y1*scale;
+  const is2d = S.mode==='2d';
+  // ---- BASE (opaque) — re-raster at scale for crisp print ----
+  const bc=document.createElement('canvas'); bc.width=EW; bc.height=EH;
+  const bg=bc.getContext('2d');
+  const bimg=bg.createImageData(EW,EH); const bo=bimg.data;
+  const pbs=(is2d?P_B:P_B)*scale;                  // (1D band pitch; 2D uses pcx/pcy)
+  const pcxs=P_CX*scale, pcys=P_CY*scale;
+  for(let y=0;y<EH;y++){
+    for(let x=0;x<EW;x++){
+      const p=(y*EW+x)*4; let cov=0;
+      if(x>=ax0&&x<ax1&&y>=ay0&&y<ay1){
+        const ux=(x-ax0)/aw;
+        if(is2d){ let cu=((x-ax0)/pcxs)%1, cv=((y-ay0)/pcys)%1; if(cu<0)cu+=1; if(cv<0)cv+=1; cov=sampleCell(cu,cv); }
+        else { let bv=((y-ay0)/(P_B*scale))%1; if(bv<0)bv+=1; cov=sampleLogo(ux,bv); }
+      }
+      bo[p]=th.paper[0]+(th.ink[0]-th.paper[0])*cov;
+      bo[p+1]=th.paper[1]+(th.ink[1]-th.paper[1])*cov;
+      bo[p+2]=th.paper[2]+(th.ink[2]-th.paper[2])*cov; bo[p+3]=255;
+    }
+  }
+  bg.putImageData(bimg,0,0);
+  // ---- CLING (transparent) — opaque bar, clear slit/pinhole ----
+  const cc=document.createElement('canvas'); cc.width=EW; cc.height=EH;
+  const cg=cc.getContext('2d');
+  const cimg=cg.createImageData(EW,EH); const co=cimg.data;
+  if(is2d){
+    const pcy=S.p_c*scale, pcx=P_CX_PIN*scale, rx=DOT_RX*0.5, ry=S.dotFrac*0.5, rx2=rx*rx, ry2=ry*ry;
+    for(let y=0;y<EH;y++) for(let x=0;x<EW;x++){
+      const p=(y*EW+x)*4;
+      let fx=(x%pcx)/pcx; if(fx>0.5)fx-=1; let fy=(y%pcy)/pcy; if(fy>0.5)fy-=1;
+      if((fx*fx)/rx2+(fy*fy)/ry2<=1){ co[p+3]=0; } else { co[p]=th.bar[0]; co[p+1]=th.bar[1]; co[p+2]=th.bar[2]; co[p+3]=255; }
+    }
+  } else {
+    const prs=S.p_r*scale, duty=S.slitDuty;
+    for(let y=0;y<EH;y++){ let ph=(y/prs)%1; if(ph<0)ph+=1; const bar=ph>=duty;
+      for(let x=0;x<EW;x++){ const p=(y*EW+x)*4;
+        if(bar){ co[p]=th.bar[0]; co[p+1]=th.bar[1]; co[p+2]=th.bar[2]; co[p+3]=255; } else { co[p+3]=0; } } }
+  }
+  cg.putImageData(cimg,0,0);
+  window.__expCanvas = { base:bc, cling:cc };            // keep for browser-download fallback
+  const okB=await postCanvas(bc,'base.png');
+  const okC=await postCanvas(cc,'cling.png');
+  return JSON.stringify({ base:okB, cling:okC, EW, EH, mode:S.mode, p_b:is2d?P_CY:P_B, p_r:is2d?S.p_c:S.p_r, theme:S.theme });
+};
+function downloadCanvas(c, name){
+  c.toBlob(b=>{
+    const url=URL.createObjectURL(b); const a=document.createElement('a');
+    a.href=url; a.download=name; document.body.appendChild(a); a.click();
+    a.remove(); setTimeout(()=>URL.revokeObjectURL(url), 4000);
+  }, 'image/png');
+}
+$('exportBtn').addEventListener('click', async ()=>{
+  const btn=$('exportBtn'); const old=btn.textContent; btn.textContent='exporting…';
+  const r = await window.__exportPrint(3);
+  const j = JSON.parse(r);
+  if (j.base && j.cling){ btn.textContent='saved ✓'; }
+  else {                                                 // POST endpoint absent -> browser download
+    const c = window.__expCanvas;
+    if (c){ downloadCanvas(c.base, `nearfield-moire-base-${S.mode}.png`);
+            setTimeout(()=>downloadCanvas(c.cling, `nearfield-moire-cling-${S.mode}.png`), 400); }
+    btn.textContent='downloaded ↓';
+  }
+  setTimeout(()=>btn.textContent=old, 1800);
+});
+
+// test / scripting hooks. __setState rebuilds the base if a base-affecting field
+// (mode/theme) changed, so scripted screenshots match the UI.
+window.__setState = o=>{
+  const needRebuild = ('mode' in o && o.mode!==S.mode) || ('theme' in o && o.theme!==S.theme);
+  Object.assign(S,o);
+  if(needRebuild) rebuildBase();
+  syncInputs(); dirty=true;
+};
+window.__render = ()=>composite();
+window.__ready = false;
+
+// ============================================================================
+//  LOOP — recomposite only when something changed (static print, no animation).
+// ============================================================================
+let dirty=true, lastKey='';
+function loop(){
+  requestAnimationFrame(loop);
+  const key = [S.mode,S.p_r,S.p_c,S.dx,S.dy,S.rot,S.clingVisible,S.theme].join('|');
+  if(!dirty && key===lastKey) return;
+  lastKey=key; dirty=false;
+  composite();
+}
+
+function boot(){
+  buildLogoBmp();
+  rebuildBase();
+  cv.style.background = S.theme==='light' ? '#f4f4f8' : '#08080c';
+  syncInputs();
+  window.__ready = true;
+  requestAnimationFrame(loop);
+}
+logoImg = new Image();
+logoImg.onload = ()=>{ logoReady=true; boot(); };
+logoImg.onerror = ()=>{ console.warn('logotype.png failed to load'); boot(); };
+logoImg.src = 'logotype.png';
+</script>
+</body>
+</html>

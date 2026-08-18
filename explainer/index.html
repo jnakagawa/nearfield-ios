@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Nearfield — how it works</title>
+<meta property="og:title" content="Nearfield — how it works">
+<meta property="og:description" content="Two waves, a beat, and a room full of phones. Scroll to see how Nearfield works.">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: #060608; color: #e8e8ee;
+         font: 17px/1.62 -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+         -webkit-font-smoothing: antialiased; }
+  /* sticky graphic: the waveform scope, pinned; text steps scroll over it */
+  .scrolly { position: relative; }
+  .graphic { position: sticky; top: 0; height: 100vh; z-index: 0; }
+  #scope { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .steps { position: relative; z-index: 1; margin-top: -100vh; }
+  /* each scene owns a tall scroll span; its card PINS (position: sticky) and stops
+     while the scope keeps animating on the right — "the left stops, the right moves." */
+  .step { min-height: 128vh; padding: 0 6vw; }
+  .step[data-i="0"] { min-height: 92vh; }
+  .step.end { min-height: 96vh; }
+  .card { position: sticky; top: 26vh; }
+  /* on wide screens the text sits in a column on the left; the scope shows to the right */
+  @media (min-width: 780px) { .step { padding-left: 8vw; } }
+  .card { max-width: 27rem; padding: 22px 26px;
+          background: rgba(6,6,9,0.82); backdrop-filter: blur(7px);
+          -webkit-backdrop-filter: blur(7px);
+          border: 1px solid #23232c; border-radius: 16px; }
+  h1 { font-size: clamp(28px, 7vw, 52px); font-weight: 600; letter-spacing: 0.12em; }
+  h2 { font-size: clamp(19px, 4.4vw, 27px); font-weight: 600; margin-bottom: 0.55em; }
+  p { margin: 0.7em 0; color: #cfcfd8; }
+  .dim { color: #9a9aa6; }
+  .sub { color: #9a9aa6; font-size: 14px; letter-spacing: 0.18em; margin-top: 8px; }
+  .read { margin-top: 1.1em; font-variant-numeric: tabular-nums; color: #fff;
+          letter-spacing: 0.01em; font-size: 15px; }
+  .read b { font-weight: 600; color: #9ec2ff; }
+  ul.layers { list-style: none; padding: 0; margin: 0.9em 0 0.3em; }
+  ul.layers li { margin: 0.55em 0; }
+  ul.layers .name { color: #fff; font-weight: 600; }
+  ul.layers .gloss { color: #7f7f8b; font-size: 13.5px; }
+  .hint { color: #6f6f7b; font-size: 12px; letter-spacing: 0.22em; margin-top: 1.6em; }
+  a.btn { display: inline-block; margin: 8px 10px 0 0; padding: 11px 22px;
+          border: 1px solid #d8d8de; border-radius: 999px; color: #fff;
+          text-decoration: none; letter-spacing: 0.12em; font-size: 13px; }
+  a.btn.ghost { border-color: #3a3a44; color: #9a9aa6; }
+  button.hear { margin-top: 1em; padding: 8px 15px; border-radius: 999px;
+                background: #10101a; border: 1px solid #4a4aff; color: #b9b9ff;
+                letter-spacing: 0.08em; font-size: 13px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="scrolly">
+  <div class="graphic"><canvas id="scope"></canvas></div>
+  <div class="steps">
+    <section class="step" data-i="0">
+      <div class="card">
+        <h1>NEARFIELD</h1>
+        <div class="sub">HOW IT WORKS</div>
+        <p style="margin-top:1.3em">A piece for a room full of phones — each playing
+        one tone. Scroll to see how it works.</p>
+        <div class="hint">SCROLL ↓</div>
+      </div>
+    </section>
+
+    <section class="step" data-i="1">
+      <div class="card">
+        <h2>A tone is a wave</h2>
+        <p>A sound is just air moving out and back, fast and steady. Drawn along time,
+        it's a wave — rising and falling over and over.</p>
+      </div>
+    </section>
+
+    <section class="step" data-i="2">
+      <div class="card">
+        <h2>Two tones, two waves</h2>
+        <p>Play two tones at once and you have two waves running side by side. Right now
+        they're the same, moving together.</p>
+      </div>
+    </section>
+
+    <section class="step" data-i="3">
+      <div class="card">
+        <h2>They add up</h2>
+        <p>Your ear hears the two waves <b>added together</b>. Where two peaks meet, the
+        sound is louder. Where a peak lands on a dip, they cancel.</p>
+        <p class="dim">Keep scrolling — watch them slide from lined-up (loud) to
+        opposite (silent) and back.</p>
+      </div>
+    </section>
+
+    <section class="step" data-i="4">
+      <div class="card">
+        <h2>The beat</h2>
+        <p>Now make the two tones a little different. The lineup keeps drifting on its
+        own — so the combined wave swells and fades, over and over.</p>
+        <p>That slow swell-and-fade is the <b>beat</b>.</p>
+        <div class="read" id="readout">the beat: <b>—</b></div>
+        <button class="hear" id="hearBtn">♪ hear it</button>
+      </div>
+    </section>
+
+    <section class="step" data-i="5">
+      <div class="card">
+        <h2>In tune, out of tune</h2>
+        <p>Bring the two tones together and the beat slows — right as they match, it
+        stops. Perfectly smooth. That's <b>in tune</b>.</p>
+        <p>Pull them apart and it speeds into a buzz, until your ear hears two separate
+        notes again.</p>
+        <p class="dim">In the piece, two people coming close is two tones sliding toward
+        that still, in-tune point.</p>
+      </div>
+    </section>
+
+    <section class="step" data-i="6">
+      <div class="card">
+        <h2>The layers</h2>
+        <p>Nearfield stacks a few kinds of tone together — high and low, fast and slow —
+        the way a gamelan is built:</p>
+        <ul class="layers">
+          <li><span class="name">the pulse</span> — low and slow, marking time
+            <span class="gloss">· the gongs</span></li>
+          <li><span class="name">the bones</span> — the tone at the center
+            <span class="gloss">· balungan</span></li>
+          <li><span class="name">the ornament</span> — high and fine, only when you move
+            <span class="gloss">· the elaboration</span></li>
+          <li><span class="name">the conductor</span> — silent, keeping the cycle
+            <span class="gloss">· kendhang</span></li>
+        </ul>
+        <p>Every phone is one voice in one of these layers.</p>
+      </div>
+    </section>
+
+    <section class="step" data-i="7">
+      <div class="card">
+        <h2>Cycles within cycles</h2>
+        <p>Zoom out from the beat and it gathers into loops. A few beats make a small
+        cycle; a few of those make a bigger one; the whole piece is one long cycle.</p>
+        <p>Each one ends on a gong — the bigger the cycle, the lower the gong. You never
+        count bars; you listen for the last gong to know where you are.
+        <span class="dim">Gamelan calls this colotomy — nested gongs marking time.</span></p>
+      </div>
+    </section>
+
+    <section class="step end" data-i="8">
+      <div class="card">
+        <h2>One field</h2>
+        <p>A whole room of these waves, crossing in the air — loud where they agree,
+        quiet where they cancel. The music happens between the phones.</p>
+        <p>Your screen shows your corner of it. Together, you are the field.</p>
+        <div style="margin-top:1.3em">
+          <a class="btn" href="/simulator/?player">hear it</a>
+          <a class="btn ghost" href="/projection">see it</a>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+'use strict';
+// Scroll-driven waveform scope. Scroll progress p∈[0,1] drives literal sine-wave
+// diagrams: two tones that slide into and out of phase (add / cancel), their sum,
+// and the beat when they detune. Clean 2D drawing on a near-black ground.
+
+const clamp = (x, a, b) => Math.min(Math.max(x, a), b);
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = t => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+const seg = (p, a, b) => smooth((p - a) / (b - a));   // progress within [a,b] → 0..1
+
+const cv = document.getElementById('scope');
+const g = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+function resize(){ DPR = Math.min(devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight; cv.width = W * DPR; cv.height = H * DPR;
+  g.setTransform(DPR, 0, 0, DPR, 0, 0); }
+addEventListener('resize', resize); resize();
+
+const INK = '#f4f4f8', TONE_A = '#f4f4f8', TONE_B = '#7fb2ff', SUM = '#ffffff';
+const LABEL = '#7a7a86';
+
+// where the waves live: to the RIGHT of the text column on wide screens, centered
+// on narrow ones — so text is never behind the busy part
+function plotBox(){
+  const wide = W >= 780;
+  const x0 = wide ? W * 0.40 : W * 0.08;
+  const x1 = W * 0.94;
+  return { x0, x1, w: x1 - x0 };
+}
+
+// draw one sine across the plot box at vertical center cy
+function drawWave(cy, amp, cycles, phase, color, width, alpha){
+  const B = plotBox();
+  g.beginPath();
+  const N = 240;
+  for (let i = 0; i <= N; i++){
+    const x = B.x0 + (i / N) * B.w;
+    const y = cy - amp * Math.sin((i / N) * cycles * 2 * Math.PI + phase);
+    i === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
+  }
+  g.globalAlpha = alpha == null ? 1 : alpha;
+  g.strokeStyle = color; g.lineWidth = width; g.lineJoin = 'round';
+  g.stroke();
+  g.globalAlpha = 1;
+}
+// draw the sum of two sines (sampled), plus optional envelope
+function drawSum(cy, amp, cyc, phaseA, cycB, phaseB, color, width, envelope){
+  const B = plotBox();
+  const N = 300;
+  if (envelope){
+    for (const s of [1, -1]){
+      g.beginPath();
+      for (let i = 0; i <= N; i++){
+        const x = B.x0 + (i / N) * B.w, u = i / N;
+        const env = Math.abs(Math.cos(Math.PI * (cycB - cyc) * u + (phaseB - phaseA) / 2));
+        const y = cy - s * amp * 2 * env;
+        i === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
+      }
+      g.strokeStyle = 'rgba(127,178,255,0.5)'; g.lineWidth = 1; g.setLineDash([4, 5]);
+      g.stroke(); g.setLineDash([]);
+    }
+  }
+  g.beginPath();
+  for (let i = 0; i <= N; i++){
+    const x = B.x0 + (i / N) * B.w, u = i / N;
+    const a = Math.sin(u * cyc * 2 * Math.PI + phaseA);
+    const b = Math.sin(u * cycB * 2 * Math.PI + phaseB);
+    const y = cy - amp * (a + b);
+    i === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
+  }
+  g.strokeStyle = color; g.lineWidth = width; g.lineJoin = 'round'; g.stroke();
+}
+function label(text, cy, color){
+  const B = plotBox();
+  g.fillStyle = color || LABEL; g.font = `500 13px -apple-system, sans-serif`;
+  g.textBaseline = 'middle';
+  g.fillText(text, B.x0, cy);
+}
+
+// ---- the director: p (+ time) → what to draw ------------------------------------
+const CYC = 7;               // base cycles across the plot
+let driftPhase = 0;          // time-based drift for the beat scenes
+
+// a labelled bracket spanning [x0,x1] at height y
+function bracket(x0, x1, y, text){
+  g.strokeStyle = '#3a3a48'; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(x0, y + 7); g.lineTo(x0, y); g.lineTo(x1, y); g.lineTo(x1, y + 7); g.stroke();
+  g.fillStyle = LABEL; g.font = '500 12px -apple-system, sans-serif';
+  g.textAlign = 'center'; g.fillText(text, (x0 + x1) / 2, y - 6); g.textAlign = 'left';
+}
+// the cycle scene: the beat-wave runs below; nested gongs mark time above it.
+// SCROLL-LOCKED — p01 (0→1) is scroll position through the scene; it sweeps the
+// playhead across one full cycle, and each gong rings as the head passes it
+// (bigger, lower gong = bigger close). Scrubbing back re-rings them.
+function drawCycles(p01){
+  const B = plotBox(), yBase = H * 0.52;
+  g.strokeStyle = '#26262e'; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(B.x0, yBase); g.lineTo(B.x1, yBase); g.stroke();
+
+  // the beat living under the timeline (continuity with the earlier scenes)
+  drawWave(yBase + 54, Math.min(H * 0.045, 30), 20, driftPhase * 0.3, TONE_A, 1.4, 0.45);
+
+  // nested gongs: fine beats (ketuk), grouped by kempul, a kenong closes each
+  // subcycle, the great low gong closes the whole cycle.
+  const N = 8;
+  const spec = [
+    { r: 8.5, c: '255,255,255' }, // 0 gong ageng — cycle ends
+    { r: 6.0, c: '207,216,255' }, // 1 kenong — subcycle close
+    { r: 4.0, c: '154,168,208' }, // 2 kempul
+    { r: 2.4, c: '110,120,150' }, // 3 ketuk — fine beat
+  ];
+  for (let i = 0; i <= N; i++){
+    const lvl = (i === 0 || i === N) ? 0 : (i === N / 2) ? 1 : (i % 2 === 0) ? 2 : 3;
+    const gx = i / N, x = B.x0 + gx * B.w, s = spec[lvl];
+    const passed = p01 >= gx - 0.001;
+    // the gong: dim ahead of the head, lit once passed
+    g.fillStyle = `rgba(${s.c},${passed ? 0.95 : 0.30})`;
+    g.beginPath(); g.arc(x, yBase, s.r, 0, 6.2832); g.fill();
+    // the strike: a ring blooms as the head crosses (scroll-locked)
+    const d = p01 - gx, ringW = 0.09 + 0.035 * (3 - lvl);   // bigger gong rings longer
+    if (d >= 0 && d < ringW){
+      const u = d / ringW;                                   // 0 at strike → 1 fading out
+      g.strokeStyle = `rgba(${s.c},${((1 - u) * 0.9).toFixed(3)})`; g.lineWidth = 1.5;
+      g.beginPath(); g.arc(x, yBase, s.r + u * (14 + (3 - lvl) * 14), 0, 6.2832); g.stroke();
+    }
+  }
+
+  // brackets: one subcycle, then the whole cycle; name the great gong
+  bracket(B.x0, B.x0 + B.w * 0.5, yBase - 40, 'subcycle');
+  bracket(B.x0, B.x1, yBase - 74, 'one cycle');
+  g.fillStyle = '#cfd8ff'; g.font = '500 12px -apple-system, sans-serif';
+  g.textAlign = 'center'; g.fillText('gong', B.x1, yBase - 92); g.textAlign = 'left';
+
+  // the scroll-locked playhead — moves only as you scroll
+  const px = B.x0 + clamp(p01, 0, 1) * B.w;
+  g.strokeStyle = 'rgba(255,255,255,0.26)'; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(px, yBase - 28); g.lineTo(px, yBase + 68); g.stroke();
+  g.fillStyle = '#fff'; g.beginPath(); g.arc(px, yBase, 3, 0, 6.2832); g.fill();
+}
+
+function render(p, dt, t){
+  g.clearRect(0, 0, W, H);
+  const B = plotBox();
+  const amp = Math.min(H * 0.075, 64);
+  const y1 = H * 0.30, y2 = H * 0.50, ySum = H * 0.74;
+
+  // scene weights (9 scenes; cards centered near (i+0.5)/9)
+  const one   = seg(p, 0.07, 0.13) * (1 - seg(p, 0.20, 0.26));       // single wave
+  const two   = seg(p, 0.20, 0.29);                                  // second wave in
+  const add   = seg(p, 0.31, 0.40);                                  // sum appears
+  const addPh = seg(p, 0.33, 0.48);                                  // scroll slides phase 0→2π
+  const beatOn = seg(p, 0.45, 0.55);                                 // detune the pair
+  const tuneP = seg(p, 0.57, 0.68);                                  // in-tune slider
+  const fieldC = seg(p, 0.90, 0.97);                                 // many waves (close)
+
+  // relative phase & detune
+  const scrollPhase = addPh * Math.PI * 2;                           // add-up: scroll = align→cancel→align
+  const detune = 1.4 * beatOn * (1 - tuneP) + 2.8 * tuneP;
+  const cycB = CYC + detune;
+  // time drift so the beat visibly crawls; rate ∝ detune (a hair in add-up)
+  driftPhase += dt * (0.6 * add * (1 - beatOn) + 2.2 * Math.max(detune, 0.35 * (p > 0.7 ? 1 : 0)));
+  const phaseA = 0.0;
+  const phaseB = scrollPhase + driftPhase;
+
+  if (p < 0.70){
+    // --- waves: A, B, and their sum ---
+    if (two > 0.01 || one > 0.01){
+      drawWave(y1, amp, CYC, phaseA, TONE_A, 2, 1);
+      label('tone A', y1 - amp - 16, LABEL);
+    }
+    if (two > 0.01){
+      drawWave(y2, amp, cycB, phaseB, TONE_B, 2, two);
+      label('tone B', y2 - amp - 16, 'rgba(127,178,255,0.8)');
+    }
+    if (add > 0.01){
+      drawSum(ySum, amp, CYC, phaseA, cycB, phaseB, SUM, 2.4, beatOn > 0.05);
+      label('A + B  (what you hear)', ySum - amp * 2 - 16, '#cfd8ff');
+    }
+  } else if (p < 0.80){
+    // --- layers: a few sines at different registers, stacked ---
+    const regs = [
+      { y: H * 0.24, cyc: 3.2, amp: amp * 1.25, w: seg(p,0.70,0.75), name: 'the pulse' },
+      { y: H * 0.42, cyc: 6.5, amp: amp * 1.0,  w: seg(p,0.72,0.77), name: 'the bones' },
+      { y: H * 0.60, cyc: 13,  amp: amp * 0.7,  w: seg(p,0.74,0.79), name: 'the ornament' },
+    ];
+    for (const r of regs){
+      drawWave(r.y, r.amp, r.cyc, driftPhase * 0.3 + r.cyc, TONE_A, 1.8, r.w);
+      label(r.name, r.y - r.amp - 15, LABEL);
+    }
+  } else if (p < 0.895){
+    // --- cycles: nested gongs, scroll-locked playhead sweeps one cycle ---
+    drawCycles(clamp((p - 0.80) / (0.895 - 0.80), 0, 1));
+  } else {
+    // --- one field: many waves overlapping into one band ---
+    for (let k = 0; k < 7; k++){
+      drawWave(H * 0.5, amp * (0.45 + 0.11 * k), 4 + k * 3.1,
+               driftPhase * 0.2 + k * 1.7, INK, 1, 0.28 + fieldC * 0.25);
+    }
+  }
+
+  // readout for the beat scene (query fresh + guard — robust to load order)
+  const rEl = document.getElementById('readout');
+  if (rEl){
+    const bh = 2.2 * detune;   // "beats per second" proxy, kept friendly
+    rEl.innerHTML = beatOn > 0.05
+      ? (detune < 0.06 ? 'the beat: <b>none</b> — the tones match'
+                       : `the beat: <b>${bh.toFixed(1)}</b> per second`)
+      : 'the beat: <b>—</b>';
+  }
+  syncBeatAudio(2.2 * detune);
+}
+
+// ---- scroll → p (smoothed), rAF loop with wall-clock dt --------------------------
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let pView = 0, lastT = null, autoP = 0;
+// Each scene's card owns a scroll span; we map that span onto the p-range render()
+// uses for that scene. So the visual is ALWAYS locked to whichever card is pinned
+// on screen — no hand-tuned guessing, no drift (the alignment is geometric).
+const STEPS = [...document.querySelectorAll('.step')];
+const PRANGE = [
+  [0.00, 0.06],   // 0 hero
+  [0.06, 0.22],   // 1 one wave
+  [0.22, 0.31],   // 2 two waves
+  [0.31, 0.45],   // 3 add up
+  [0.45, 0.57],   // 4 the beat
+  [0.57, 0.70],   // 5 in / out of tune
+  [0.70, 0.80],   // 6 the layers
+  [0.80, 0.895],  // 7 cycles
+  [0.895, 1.00],  // 8 one field
+];
+function scrollP(){
+  const line = innerHeight * 0.5;                 // viewport-center reference line
+  let idx = STEPS.length - 1, localT = 1;         // past the end → last scene, done
+  for (let i = 0; i < STEPS.length; i++){
+    const r = STEPS[i].getBoundingClientRect();
+    if (line < r.bottom){ idx = i; localT = clamp((line - r.top) / (r.height || 1), 0, 1); break; }
+  }
+  const rng = PRANGE[idx] || [1, 1];
+  return rng[0] + localT * (rng[1] - rng[0]);     // scene i's card centered ⇒ mid of its p-range
+}
+function step(dt, t){
+  let target = scrollP();
+  if (reduced) { autoP = (autoP + dt / 55) % 1; target = autoP; }
+  pView += (target - pView) * (1 - Math.exp(-dt / 0.16));
+  if (typeof window.__fp === 'number') pView = window.__fp; // test hook
+  render(pView, dt, t);
+}
+function frame(ms){
+  requestAnimationFrame(frame);
+  const t = ms / 1000, dt = lastT === null ? 0.016 : Math.min(t - lastT, 0.05); lastT = t;
+  step(dt, t);
+}
+requestAnimationFrame(frame);
+// wall-clock fallback: keep advancing if rAF is throttled (backgrounded tab)
+setInterval(() => { const t = performance.now() / 1000;
+  if (lastT === null || t - lastT > 0.35) { const dt = Math.min(t - (lastT ?? t), 0.2);
+    lastT = t; step(dt, t); } }, 250);
+
+// ---- optional "hear the beat": two quiet sines (scene 4) ------------------------
+let audio = null;
+function syncBeatAudio(beatHz){
+  if (!audio) return;
+  audio.oscB.frequency.setTargetAtTime(220 + clamp(beatHz, 0, 10), audio.ctx.currentTime, 0.05);
+}
+document.getElementById('hearBtn').addEventListener('click', (e) => {
+  const btn = e.currentTarget;
+  if (audio) { audio.ctx.close(); audio = null; btn.textContent = '♪ hear it'; return; }
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const gain = new GainNode(ctx, { gain: 0.06 });
+  const oscA = new OscillatorNode(ctx, { type: 'sine', frequency: 220 });
+  const oscB = new OscillatorNode(ctx, { type: 'sine', frequency: 222 });
+  oscA.connect(gain); oscB.connect(gain); gain.connect(ctx.destination);
+  oscA.start(); oscB.start();
+  audio = { ctx, oscA, oscB };
+  btn.textContent = '❚❚ stop';
+});
+</script>
+</body>
+</html>

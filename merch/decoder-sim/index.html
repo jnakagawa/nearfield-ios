@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nearfield — static moiré cling decoder</title>
+<style>
+  :root{ color-scheme: dark; }
+  *{ box-sizing: border-box; margin: 0; }
+  body{
+    background: #060608; color: #e8e8ee;
+    font: 15px/1.55 -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 26px 16px 48px; min-height: 100vh;
+  }
+  h1{ font-size: 19px; font-weight: 600; letter-spacing: .04em; }
+  .sub{ color: #8a8a96; font-size: 13px; margin: 4px 0 20px; max-width: 660px; text-align: center; }
+  .sub b{ color: #cfcfd8; font-weight: 500; }
+
+  .stagewrap{ position: relative; }
+  #stage{
+    display: block; background: #f4f4f8; border-radius: 12px;
+    width: min(1000px, 94vw); height: auto; aspect-ratio: 1000 / 640;
+    touch-action: none; cursor: grab; box-shadow: 0 0 0 1px #1c1c24, 0 24px 60px -30px #000;
+  }
+  #stage:active{ cursor: grabbing; }
+
+  .ctrls{
+    margin-top: 22px; display: flex; gap: 20px 26px; flex-wrap: wrap;
+    justify-content: center; align-items: center;
+    background: #101016; border: 1px solid #23232c; border-radius: 14px;
+    padding: 16px 20px; max-width: 940px;
+  }
+  .ctrl{ display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #9a9aa6; }
+  .ctrl > .lab{ letter-spacing: .12em; text-transform: uppercase; font-size: 11px; color: #7f7f8b; }
+  .ctrl .val{ color: #dcdce4; font-variant-numeric: tabular-nums; }
+
+  .seg{ display: flex; border: 1px solid #33333e; border-radius: 8px; overflow: hidden; }
+  .seg button{ background: #15151c; color: #b9b9c4; border: 0; padding: 8px 13px; font-size: 12px; cursor: pointer; letter-spacing: .02em; }
+  .seg button.on{ background: #2b3f66; color: #fff; }
+  .seg button:not(.on):hover{ background: #1c1c26; }
+
+  input[type=range]{ width: 160px; accent-color: #7fb2ff; }
+
+  .btns{ display: flex; gap: 8px; flex-wrap: wrap; }
+  .btns button{
+    background: #10101a; border: 1px solid #3a3a44; color: #c7c7d2;
+    padding: 8px 14px; border-radius: 999px; font-size: 12px; cursor: pointer; letter-spacing: .04em;
+  }
+  .btns button:hover{ border-color: #7fb2ff; color: #fff; }
+  .btns button.primary{ border-color: #4a4aff; color: #b9b9ff; }
+
+  .readout{
+    margin-top: 16px; font-size: 13px; color: #9a9aa6; letter-spacing: .02em;
+    font-variant-numeric: tabular-nums; text-align: center; max-width: 660px;
+  }
+  .readout b{ color: #9ec2ff; font-weight: 600; }
+  .readout .frameA{ color: #f4f4f8; font-weight: 600; }
+  .readout .frameB{ color: #7fb2ff; font-weight: 600; }
+  .readout .frameC{ color: #9fe0b0; font-weight: 600; }
+
+  .note{ margin-top: 18px; max-width: 660px; color: #6f6f7b; font-size: 12.5px; text-align: center; }
+  .note b{ color: #9a9aa6; }
+  .hidden{ display: none !important; }
+</style>
+</head>
+<body>
+  <h1>NEARFIELD · static moiré cling decoder</h1>
+  <div class="sub">A <b>single static printed sticker</b> — a clean topographic interference field, printed once, <b>nothing animates</b>. Slide the transparent <b>cling</b> (vertical bars) across it and the field <b>ripples</b>: the bars beat against the printed contour lines and throw big <b>moiré</b> fringes that sweep the sheet — the same interference Nearfield is about. The cling is a <b>1/3-duty barrier grating</b> (one slit, two-thirds bar) and the text band interlaces <b>three</b> co-located frames, so each third of a period reveals the next: <b>logotype → date → location</b>. It's all interference, not motion.</div>
+
+  <div class="stagewrap">
+    <canvas id="stage" width="1000" height="640"></canvas>
+  </div>
+
+  <div class="ctrls">
+    <div class="ctrl">
+      <span class="lab">Grid pitch P · moiré + flip <span class="val" id="pVal">18</span>px</span>
+      <input id="pRange" type="range" min="9" max="48" step="1" value="18">
+    </div>
+
+    <div class="ctrl">
+      <span class="lab">Theme</span>
+      <div class="seg" id="themeSeg">
+        <button data-th="light">light</button>
+        <button data-th="dark" class="on">dark</button>
+      </div>
+    </div>
+
+    <div class="ctrl">
+      <span class="lab">Decoder</span>
+      <div class="btns">
+        <button id="snapLogo" class="primary">snap to logotype</button>
+        <button id="snapDate" class="primary">snap to date</button>
+        <button id="snapLoc" class="primary">snap to location</button>
+        <button id="toggleCling">hide cling</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="readout" id="readout"><span class="frameA">logotype</span> showing</div>
+
+  <div class="note">The sticker is <b>printed once</b> and never changes — a clean static topo field, and a solid <b>logotype</b>, <b>date</b> and <b>location</b> interlaced three-ways (thirds of each period) into one co-located text band. The cling is a straight vertical <b>barrier grating</b> at <b>1/3 duty</b> (one clear slit of <b>P/3</b>, the rest opaque bar): one third of each period is open, so exactly one of the three frames shows through at a time. The apparent motion is pure <b>moiré</b> — the bars beat against the printed contour lines, and because the grid pitch P sits <b>just off</b> the field's contour spacing, a small slide rolls large fringes across the whole sheet. A one-third (P/3) slide advances <b>logotype → date → location</b>. Nothing re-renders; the field is frozen. Arrow keys nudge (±1px, Shift ±P/3). The field is held off all three marks by a dilated <b>safe-zone halo</b> so the text island stays clean.</div>
+
+<script>
+'use strict';
+
+/* ============================================================================
+   NEARFIELD static moiré cling decoder
+   ----------------------------------------------------------------------------
+   THE PHYSICAL MODEL (the whole point)
+     The sticker is a FULLY STATIC printed object. There is NO baked-in motion,
+     no interlaced frames of drift, no Scanimation. The printed image is:
+       - a single CLEAN topographic interference field (rendered ONCE, frozen),
+       - with a text band interlaced THREE WAYS (thirds of each period) between
+         the logotype (A), the date (B) and the location (C).
+
+     The ONLY apparent motion comes from MOIRÉ: a transparent cling — a 1/3-duty
+     BARRIER GRATING (one clear slit of width P/3 per period, the rest opaque bar)
+     — slides over the print. The bars beat against the field's contour lines, and
+     because the grid pitch P sits just OFF the field's dominant contour spacing, a
+     small slide sweeps LARGE moiré fringes across the whole sheet — the field
+     appears to ripple/roll. It is pure interference: the field is never
+     re-rendered, nothing is animated. A one-third (P/3) slide also advances which
+     third of the text band shows through the single slit, so the revealed frame
+     cycles logotype -> date -> location.
+
+   REUSED ASSETS
+   - Interference field: the contour/hairline shader from
+     NearfieldEnsemble/visual.html. Rendered in WebGL to an offscreen canvas by
+     renderField(t). We call it ONCE (t = FIELD_T) to freeze a clean field; it is
+     re-rendered only on a THEME change (ink flip), never on drag or time.
+   - Logotype: logotype.png, a thin double-outline wordmark. We threshold the dark
+     outline pixels, then FLOOD-FILL the enclosed interiors so the letters read as
+     SOLID BOLD ink (see buildLogoMask). Date lockup drawn as bold ink.
+
+   TEXT BAND (3-frame interlace, text only — NOT the field)
+     Per pixel in the sticker: pick which text mask applies from the printed
+     column phase  sub = floor(((x%P)+P)%P / (P/3))  -> 0/1/2;  m = A/B/C.
+     Then: m.ink -> INK; else haloUnion (safe-zone) -> PAPER; else the frozen
+     field pixel. So the field is one clean continuous topo; only the text band
+     cycles logotype/date/location columns. Sliding the cling by P/3 moves the
+     single slit onto the next third of the band => the revealed frame advances.
+
+   SAFE-ZONE KNOCKOUT
+     Each mark is rasterized to a 1-bit ink mask, DILATED -> a halo mask. haloUnion
+     = haloA ∪ haloB ∪ haloC holds the field off ALL THREE marks, so the paper text
+     island is common and only the ink changes between logotype, date and location.
+
+   STATIC GUARANTEE
+     bakeSticker() builds ONE static bitmap (rebuilt only on P / theme change).
+     composite() is DISPLAY-ONLY: blit the sticker, then over the decoder rect
+     blend toward the cling colour on the bar columns. It takes NO time argument
+     and never reads the clock. Idle => a frozen still, pixel-identical over time.
+   ========================================================================= */
+
+const W = 1000, H = 640;
+
+// Frozen field drift-phase. renderField(FIELD_T) is called ONCE to bake a single
+// clean topo field; the value is arbitrary (just picks one nice frozen phase).
+const FIELD_T = 5.0;
+
+// FIELD_DENSITY — the shader's contour density (isolines per unit field value).
+// Higher = finer, more uniform contour spacing => a well-defined dominant pitch
+// for the cling to beat against. At 5.0 the field reads as a CLEAN app-style topo
+// with a fairly uniform dominant contour spacing of ~12px (measured). The default
+// grid pitch P=18 sits above that ~12px spacing (offset ~6px => moiré beat
+// wavelength ~36px), so a small cling slide visibly ripples the field. With the
+// 1/3-duty grating the clear slit is P/3=6px — wide enough to read all three
+// frames (logotype / date / location) while the 2/3 opaque bar still beats the
+// contour lines. Coarser P (slider up) = wider slit / crisper text but a longer
+// moiré wavelength; finer P = blockier, more-sliced text but tighter fringes.
+const FIELD_DENSITY = 5.0;
+
+// themeable ink/paper. Light: black ink on paper-white. Dark: light ink on near-black.
+// clingA = bar opacity. Fully opaque (1.0) so a bar is a uniform solid. In BOTH
+// themes the cling colour == the paper ground, so the bars vanish into the ground
+// and you read the ink (contours + text) through the slits: black-on-white in
+// light, white-on-black in dark.
+const THEME = {
+  light: { paper: [0xf4,0xf4,0xf8], ink: [0x0a,0x0a,0x0f], cling: [0xf4,0xf4,0xf8], clingA: 1.0, field: 0 },
+  dark:  { paper: [0x08,0x08,0x0c], ink: [0xf0,0xf0,0xf4], cling: [0x08,0x08,0x0c], clingA: 1.0, field: 1 },
+};
+
+const cv  = document.getElementById('stage');
+const ctx = cv.getContext('2d', { willReadFrequently: true });
+
+// ---- state -----------------------------------------------------------------
+const S = {
+  theme: 'dark',
+  P: 18,                 // grid pitch (px). Sits just off the field's ~12px contour spacing => moiré; the 1/3-duty slit is P/3=6px, wide enough to read all three frames.
+  dragX: 0, dragY: 0,    // cling offset; dragX slides the bars (moiré sweep + P/3 frame advance), dragY is cosmetic
+  decW: 560, decH: 380,  // cling footprint (smaller than sticker)
+  decVisible: true,
+};
+
+// ============================================================================
+//  FIELD — reused interference-contour shader (NearfieldEnsemble/visual.html)
+//  Rendered offscreen in WebGL, drifting continuously; ink uniform = theme.
+// ============================================================================
+const fieldCanvas = document.createElement('canvas');
+fieldCanvas.width = W; fieldCanvas.height = H;
+const gl = fieldCanvas.getContext('webgl', { antialias: true, preserveDrawingBuffer: true });
+
+function fnv1a(s){ let h=0x811c9dc5; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,0x01000193); } return h>>>0; }
+function mulberry32(seed){ let a=seed>>>0; return function(){ a|=0; a=(a+0x6D2B79F5)|0; let t=Math.imul(a^(a>>>15),1|a); t=(t+Math.imul(t^(t>>>7),61|t))^t; return ((t^(t>>>14))>>>0)/4294967296; }; }
+
+// Fragment shader: verbatim structure from visual.html's FS (hairline contours of
+// a sum-of-radial-cosines interference field; `ink` flips light/dark).
+const FS = `
+#extension GL_OES_standard_derivatives : enable
+precision highp float;
+uniform vec2 res;
+uniform float ink, density;
+uniform vec2 meC[6];
+uniform float meLam[6], meW[6];
+float hair(float v, float n, float w) {
+  float q = v * n;
+  float d = abs(fract(q) - 0.5) / (fwidth(q) + 1e-5);
+  return 1.0 - smoothstep(w, w + 1.0, d);
+}
+void main(){
+  vec2 uv = (gl_FragCoord.xy - 0.5*res) / min(res.x, res.y);
+  float v = 0.0; float g = 1e-4;
+  for (int k = 0; k < 6; k++) {
+    v += meW[k] * cos(6.2831853 * length(uv - meC[k]) / meLam[k]);
+    g += meW[k];
+  }
+  v = v / g;
+  float c = hair(v, density, 0.7);
+  float lum = mix(1.0 - c, c, ink);
+  gl_FragColor = vec4(vec3(lum), 1.0);
+}`;
+const VS = `attribute vec2 p; void main(){ gl_Position = vec4(p,0.,1.); }`;
+
+let fieldOK = false, prog = null;
+try {
+  gl.getExtension('OES_standard_derivatives');
+  const compile = (type, src) => {
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src); gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+    return sh;
+  };
+  prog = gl.createProgram();
+  gl.attachShader(prog, compile(gl.VERTEX_SHADER, VS));
+  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  const quad = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+  const pAttr = gl.getAttribLocation(prog, 'p');
+  gl.enableVertexAttribArray(pAttr);
+  gl.vertexAttribPointer(pAttr, 2, gl.FLOAT, false, 0, 0);
+  fieldOK = true;
+} catch (e) { console.warn('WebGL field unavailable, using canvas fallback:', e); }
+
+// seeded drifting sources (6), same recipe as visual.html: off-frame radial
+// scatter with slow orbital wobble -> a woven terrain, no single focal point.
+const rng = mulberry32(fnv1a('nearfield-decoder'));
+const centers = Array.from({ length: 6 }, () => {
+  const ang = rng()*Math.PI*2, rad = 1.25 + rng()*0.55;
+  return { x: Math.cos(ang)*rad, y: Math.sin(ang)*rad, wob: rng()*Math.PI*2, rate: 0.05 + rng()*0.05 };
+});
+const lamFor = f => Math.max(0.32 * Math.pow(220/f, 0.7), 0.06);
+const srcSpec = [ {pk:0,w:1.0},{pk:0,w:0.65},{pk:0,w:0.45},{pk:1,w:1.0},{pk:2,w:1.0},{pk:3,w:1.0} ];
+const RATIOS = [1, 2.07, 3.2, 4.4];
+const PITCH = 220;
+
+// canvas-2d fallback field (used when WebGL is unavailable, e.g. headless).
+// Mirrors the shader's math: same sum-of-radial-cosines interference value,
+// rendered as hairline contours via a coarse ImageData pass. Visually stands in
+// for the WebGL field so the page still reads as the app's interference terrain.
+const fieldFallback = document.createElement('canvas');
+fieldFallback.width = W; fieldFallback.height = H;
+const ffx = fieldFallback.getContext('2d');
+const FF_STEP = 2;                 // coarse grid then smoothed for perf
+const ffImg = ffx.createImageData(W, H);
+function drawFieldFallback(t){
+  const th = THEME[S.theme];
+  const inkVal = th.field;          // 0 = ink lines dark on paper, 1 = light on dark
+  const paper = inkVal ? th.paper : th.paper;
+  const line  = inkVal ? th.ink : th.ink;
+  // source centers + wavelengths (same recipe as the shader)
+  const cx = [], cy = [], lam = [], wt = [];
+  for (let k=0;k<6;k++){
+    const c = centers[k];
+    cx.push(c.x + 0.07*Math.sin(t*c.rate + c.wob));
+    cy.push(c.y + 0.07*Math.cos(t*c.rate*0.9 + c.wob));
+    lam.push(lamFor(PITCH * RATIOS[srcSpec[k].pk]));
+    wt.push(srcSpec[k].w);
+  }
+  const minRes = Math.min(W, H);
+  const density = FIELD_DENSITY, TWO_PI = 6.2831853;
+  const d = ffImg.data;
+  // compute field value + a screen-space contour band; step then fill blocks
+  let gsum = 1e-4; for (const w of wt) gsum += w;
+  const invG = 1/gsum;
+  let prevRow = new Float32Array(W);
+  for (let y=0;y<H;y+=FF_STEP){
+    const uy = (y - 0.5*H)/minRes;
+    for (let x=0;x<W;x+=FF_STEP){
+      const ux = (x - 0.5*W)/minRes;
+      let v = 0;
+      for (let k=0;k<6;k++){
+        const dx = ux - cx[k], dy = uy - cy[k];
+        v += wt[k]*Math.cos(TWO_PI*Math.sqrt(dx*dx+dy*dy)/lam[k]);
+      }
+      v *= invG;
+      // contour: distance of frac(v*density) to 0.5 -> hairline near band edges
+      const q = v*density;
+      const f = q - Math.floor(q);
+      const dist = Math.abs(f - 0.5);
+      const onLine = dist > 0.44 ? 1 : 0;   // ~constant-width isolines
+      const r = onLine ? line[0] : paper[0];
+      const g = onLine ? line[1] : paper[1];
+      const b = onLine ? line[2] : paper[2];
+      for (let yy=y; yy<Math.min(H,y+FF_STEP); yy++){
+        const row = yy*W;
+        for (let xx=x; xx<Math.min(W,x+FF_STEP); xx++){
+          const p = (row+xx)*4;
+          d[p]=r; d[p+1]=g; d[p+2]=b; d[p+3]=255;
+        }
+      }
+    }
+  }
+  ffx.putImageData(ffImg, 0, 0);
+}
+
+// draw the animated field for time t; returns the source canvas
+function renderField(t){
+  const th = THEME[S.theme];
+  if (!fieldOK){ drawFieldFallback(t); return fieldFallback; }
+  const meC = [], meLam = [], meW = [];
+  for (let k=0; k<6; k++){
+    const c = centers[k];
+    meC.push(c.x + 0.07*Math.sin(t*c.rate + c.wob), c.y + 0.07*Math.cos(t*c.rate*0.9 + c.wob));
+    meLam.push(lamFor(PITCH * RATIOS[srcSpec[k].pk]));
+    meW.push(srcSpec[k].w);
+  }
+  gl.viewport(0,0,W,H);
+  gl.useProgram(prog);
+  const loc = n => gl.getUniformLocation(prog, n);
+  gl.uniform2f(loc('res'), W, H);
+  gl.uniform1f(loc('ink'), th.field);
+  gl.uniform1f(loc('density'), FIELD_DENSITY);
+  gl.uniform2fv(loc('meC'), meC);
+  gl.uniform1fv(loc('meLam'), meLam);
+  gl.uniform1fv(loc('meW'), meW);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  return fieldCanvas;
+}
+
+// ============================================================================
+//  MARK MASKS — build a 1-bit ink mask + a dilated halo mask for each frame's
+//  text region. Rasterized once (per layout); reused every tick.
+// ============================================================================
+const HALO_R = 34;   // safe-zone dilation radius (px). Generous margin: with the
+                     // 1/3-duty grating the field shows as busy vertical slivers
+                     // right up to any ink, so a WIDER clean paper island around
+                     // the three co-located marks keeps that field-moiré from
+                     // crowding the text and lets each revealed frame read as
+                     // cleanly as its isolated barrier-grid sample.
+
+let logoImg = null, logoReady = false;
+const masks = { A: null, B: null, C: null };   // each: { ink: Uint8Array, halo: Uint8Array }
+
+// rasterize a draw callback to {ink, halo} masks over the whole WxH grid.
+// inkGrow: optionally dilate the ink mask (px) to bolden thin strokes so the
+// mark survives interlacing as solid bold ink (the outlined logotype needs this).
+function buildMask(drawFn, inkGrow){
+  const tmp = document.createElement('canvas'); tmp.width = W; tmp.height = H;
+  const tg = tmp.getContext('2d', { willReadFrequently: true });
+  tg.clearRect(0,0,W,H);
+  drawFn(tg);
+  const data = tg.getImageData(0,0,W,H).data;
+  let ink = new Uint8Array(W*H);
+  for (let i=0,p=0;i<ink.length;i++,p+=4) ink[i] = data[p+3] > 128 ? 1 : 0;
+  if (inkGrow) ink = dilate(ink, inkGrow);
+  const halo = dilate(ink, HALO_R);
+  return { ink, halo };
+}
+
+// separable box dilation (max filter) — cheap approximation of a disc dilation.
+function dilate(mask, r){
+  const tmpA = new Uint8Array(W*H), out = new Uint8Array(W*H);
+  // horizontal pass
+  for (let y=0;y<H;y++){
+    const row = y*W;
+    for (let x=0;x<W;x++){
+      let on = 0;
+      const lo = Math.max(0, x-r), hi = Math.min(W-1, x+r);
+      for (let xx=lo; xx<=hi; xx++){ if (mask[row+xx]){ on=1; break; } }
+      tmpA[row+x] = on;
+    }
+  }
+  // vertical pass
+  for (let x=0;x<W;x++){
+    for (let y=0;y<H;y++){
+      let on = 0;
+      const lo = Math.max(0, y-r), hi = Math.min(H-1, y+r);
+      for (let yy=lo; yy<=hi; yy++){ if (tmpA[yy*W+x]){ on=1; break; } }
+      out[y*W+x] = on;
+    }
+  }
+  return out;
+}
+
+// centered, letterspaced text (canvas has no letter-spacing pre-draw)
+function drawSpaced(c, text, cx, y, tracking){
+  const widths = [...text].map(ch => c.measureText(ch).width + tracking);
+  const total = widths.reduce((a,b)=>a+b,0) - tracking;
+  let x = cx - total/2;
+  const prev = c.textAlign; c.textAlign = 'left';
+  for (let i=0;i<text.length;i++){ c.fillText(text[i], x, y); x += widths[i]; }
+  c.textAlign = prev;
+}
+
+// Frame A art: the logotype. logotype.png is a thin DOUBLE-OUTLINE wordmark, so
+// its raw dark pixels are just rings — they shatter under the grid and don't read.
+// buildLogoMask() SOLIDIFIES it into bold filled letterforms:
+//   1) place + threshold -> the dark outline pixels (`outline`),
+//   2) small dilation to close antialiased gaps so the flood can't leak through,
+//   3) flood-fill "light" (non-outline) pixels inward from the image border ->
+//      those reached are EXTERIOR background; any light pixel NOT reached is
+//      enclosed by outlines => INTERIOR of a letter,
+//   4) final ink = outline ∪ interior = solid bold letters.
+// Returns { ink, halo } directly (bypasses buildMask's generic thresholding).
+function buildLogoMask(){
+  const ink = new Uint8Array(W*H);
+  if (!logoReady){ return { ink, halo: dilate(ink, HALO_R) }; }
+  // place the 2172x724 wordmark centered on the text-band line (same line the
+  // date's big row sits on) so logotype and date swap in-register.
+  const LOGO_H = 210, LOGO_CY = H*0.44;
+  const iw = logoImg.width, ih = logoImg.height;
+  const scale = LOGO_H / ih;
+  const dw = iw*scale, dh = ih*scale;
+  const dx = (W - dw)/2, dy = LOGO_CY - dh/2;
+
+  const t = document.createElement('canvas'); t.width = W; t.height = H;
+  const tc = t.getContext('2d', { willReadFrequently: true });
+  tc.clearRect(0,0,W,H);
+  tc.drawImage(logoImg, dx, dy, dw, dh);
+  const d = tc.getImageData(0,0,W,H).data;
+
+  // 1) outline = covered + dark
+  let outline = new Uint8Array(W*H);
+  for (let i=0,p=0;i<W*H;i++,p+=4){
+    const covered = d[p+3] > 0;
+    const lum = 0.299*d[p] + 0.587*d[p+1] + 0.114*d[p+2];
+    outline[i] = (covered && lum < 128) ? 1 : 0;
+  }
+  // 2) close AA gaps so the outer ring is watertight and the fill can't leak in.
+  const closed = dilate(outline, 3);
+
+  // 3) flood-fill light pixels from the border (BFS over 4-neighbours).
+  //    reached => exterior; light-but-unreached => interior of a letter.
+  const exterior = new Uint8Array(W*H);   // 1 = reached from border (background)
+  const stack = [];
+  const push = (x,y) => {
+    const i = y*W+x;
+    if (!closed[i] && !exterior[i]){ exterior[i] = 1; stack.push(i); }
+  };
+  for (let x=0;x<W;x++){ push(x,0); push(x,H-1); }
+  for (let y=0;y<H;y++){ push(0,y); push(W-1,y); }
+  while (stack.length){
+    const i = stack.pop();
+    const x = i % W, y = (i / W) | 0;
+    if (x>0)   push(x-1,y);
+    if (x<W-1) push(x+1,y);
+    if (y>0)   push(x,y-1);
+    if (y<H-1) push(x,y+1);
+  }
+  // 4) ink = closed-outline ∪ interior (light pixels never reached by the flood)
+  for (let i=0;i<W*H;i++){
+    ink[i] = (closed[i] || (!closed[i] && !exterior[i])) ? 1 : 0;
+  }
+  return { ink, halo: dilate(ink, HALO_R) };
+}
+
+// Frame B art: the date, drawn on its own as solid bold black ink. Centered in
+// the same text band the logotype and location occupy (they stack via the
+// interlace, not vertically), so all three swap in-register through the slit.
+function drawDateMask(c){
+  const cx = W/2;
+  c.fillStyle = '#000';
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.font = '800 108px -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif';
+  c.fillText('SUMMER 2026', cx, H*0.44);
+}
+
+// Frame C art: the location, on TWO lines so the type can be much bigger (and
+// each glyph's strokes fat enough to survive the 1/3 slit — a single small line
+// let the vertical of the "L" fall under a bar). Stacked around the same band
+// center as A and B. At 80px/800 each line is ~620px wide — comfortably inside
+// the 1000px canvas.
+function drawLocationMask(c){
+  const cx = W/2;
+  c.fillStyle = '#000';
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.font = '800 80px -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif';
+  drawSpaced(c, 'HERMON PARK', cx, H*0.44 - 48, 2);
+  drawSpaced(c, 'LOS ANGELES', cx, H*0.44 + 48, 2);
+}
+
+let haloUnion = null;   // haloA ∪ haloB ∪ haloC — the shared safe-zone island
+function buildMasks(){
+  masks.A = buildLogoMask();              // solid bold logotype (outline + flood-filled interiors)
+  masks.B = buildMask(drawDateMask);      // date only
+  masks.C = buildMask(drawLocationMask);  // location only
+  // Shared knockout: the field is held off ALL THREE marks in every frame, so no
+  // wave line ever appears next to text in the columns that sample the OTHER
+  // frames. Only the ink differs between frames; the paper island is common.
+  haloUnion = new Uint8Array(W*H);
+  for (let i=0;i<haloUnion.length;i++)
+    haloUnion[i] = (masks.A.halo[i] || masks.B.halo[i] || masks.C.halo[i]) ? 1 : 0;
+}
+
+// ============================================================================
+//  FROZEN FIELD — the clean topo field is rendered ONCE (renderField(FIELD_T))
+//  and snapshotted here. It never re-renders on drag or time; only a THEME change
+//  (ink flip) re-renders it. This is the "printed" continuous topographic field.
+// ============================================================================
+const frozenField = document.createElement('canvas');
+frozenField.width = W; frozenField.height = H;
+const frozenCtx = frozenField.getContext('2d', { willReadFrequently: true });
+let frozenData = null;   // Uint8ClampedArray of the frozen field pixels
+
+function freezeField(){
+  const src = renderField(FIELD_T);      // ONE clean phase — frozen
+  frozenCtx.clearRect(0,0,W,H);
+  frozenCtx.drawImage(src, 0, 0, W, H);
+  frozenData = frozenCtx.getImageData(0,0,W,H).data;
+}
+
+// ============================================================================
+//  BAKED STICKER — one static WxH bitmap. The FIELD is the single frozen clean
+//  topo (never interlaced). Only the TEXT BAND is a 3-frame interlace: per
+//  column, sub = floor(((x%P)+P)%P / (P/3)) picks logotype (0), date (1) or
+//  location (2). Per pixel: chosen-mask ink -> INK; else safe-zone halo -> PAPER;
+//  else the frozen field. Rebuilt only on P / theme change; NEVER on drag or time.
+// ============================================================================
+const stickerCanvas = document.createElement('canvas');
+stickerCanvas.width = W; stickerCanvas.height = H;
+const stickerCtx = stickerCanvas.getContext('2d', { willReadFrequently: true });
+
+function bakeSticker(){
+  if (!frozenData || !masks.A || !masks.B || !masks.C) return;
+  const th = THEME[S.theme];
+  const PAPER = th.paper, INK = th.ink;
+  const P = S.P, third = P / 3;
+  const inks = [masks.A.ink, masks.B.ink, masks.C.ink];
+
+  // per-column: which text frame prints here (0 = logotype, 1 = date, 2 = location).
+  const colSub = new Uint8Array(W);
+  for (let x = 0; x < W; x++){
+    let s = Math.floor((((x % P) + P) % P) / third);
+    if (s > 2) s = 2;                     // guard the top edge when P/3 doesn't divide evenly
+    colSub[x] = s;                        // 0, 1 or 2
+  }
+
+  const out = stickerCtx.createImageData(W, H);
+  const o = out.data;
+  const f = frozenData;
+  for (let y = 0; y < H; y++){
+    const row = y * W;
+    for (let x = 0; x < W; x++){
+      const i = row + x;
+      const p = i * 4;
+      const m = inks[colSub[x]];          // this column's text frame (text only)
+      if (m[i]){                          // this frame's mark -> ink
+        o[p]=INK[0]; o[p+1]=INK[1]; o[p+2]=INK[2];
+      } else if (haloUnion[i]){           // safe-zone -> paper (field held off both marks)
+        o[p]=PAPER[0]; o[p+1]=PAPER[1]; o[p+2]=PAPER[2];
+      } else {                            // everything else -> the frozen clean field
+        o[p]=f[p]; o[p+1]=f[p+1]; o[p+2]=f[p+2];
+      }
+      o[p+3] = 255;
+    }
+  }
+  stickerCtx.putImageData(out, 0, 0);
+}
+
+// ============================================================================
+//  COMPOSITE — DISPLAY ONLY. Blit the static sticker, then (if the cling is
+//  shown) draw the sliding 1/3-duty barrier grating over the decoder rect (one
+//  clear slit of P/3, the rest opaque bar). Takes NO time argument: the sticker
+//  is fixed; only dragX/dragY/visibility matter. The moiré and the
+//  logotype->date->location advance both fall straight out of sliding these bars —
+//  no field re-render, no time.
+// ============================================================================
+
+// cling footprint (top-left tracks the drag so the box moves with the cling)
+function decoderRect(){
+  const x0 = Math.round((W - S.decW)/2 + S.dragX);
+  const y0 = Math.round((H - S.decH)/2 + S.dragY);
+  return { x0, y0, x1: x0 + S.decW, y1: y0 + S.decH };
+}
+
+function composite(){
+  // 1) the static printed sticker (also the "raw sticker" look when cling hidden)
+  ctx.drawImage(stickerCanvas, 0, 0, W, H);
+
+  const th = THEME[S.theme];
+  const CLING = th.cling, CA = th.clingA;
+  const R = S.decVisible ? decoderRect() : null;
+
+  // 2) cling: 1/3-duty barrier grating. One clear slit of width P/3 per period,
+  //    the rest opaque bar. Over the decoder rect keep the sticker where the slit
+  //    is (phase < P/3) and blend toward CLING on the bar (phase >= P/3). Sliding
+  //    by P/3 advances the slit onto the next third: the moiré fringes sweep (the
+  //    2/3 bar beats against the frozen contour lines) and the revealed frame
+  //    advances (slit moves logotype -> date -> location columns).
+  if (R){
+    const P = S.P, third = P / 3;
+    const rx0 = Math.max(0, R.x0), ry0 = Math.max(0, R.y0);
+    const rx1 = Math.min(W, R.x1), ry1 = Math.min(H, R.y1);
+    if (rx1 > rx0 && ry1 > ry0){
+      const img = ctx.getImageData(rx0, ry0, rx1-rx0, ry1-ry0);
+      const d = img.data;
+      // slit test is column-only; precompute per absolute-x whether it's a bar.
+      const isBar = new Uint8Array(rx1 - rx0);
+      for (let x = rx0; x < rx1; x++){
+        const phid = (((x - S.dragX) % P) + P) % P;
+        isBar[x - rx0] = phid < third ? 0 : 1;   // slit (keep, 1/3) vs bar (blend, 2/3)
+      }
+      const rw = rx1 - rx0;
+      for (let yy = 0; yy < ry1 - ry0; yy++){
+        const rowBase = yy * rw;
+        for (let xx = 0; xx < rw; xx++){
+          if (!isBar[xx]) continue;          // slit: sticker pixel untouched
+          const p = (rowBase + xx) * 4;
+          d[p]   = d[p]   + (CLING[0] - d[p])   * CA;
+          d[p+1] = d[p+1] + (CLING[1] - d[p+1]) * CA;
+          d[p+2] = d[p+2] + (CLING[2] - d[p+2]) * CA;
+        }
+      }
+      ctx.putImageData(img, rx0, ry0);
+    }
+    drawClingFrame(R);
+  }
+  updateReadout();
+}
+
+// thin dashed outline so the cling footprint is visible
+function drawClingFrame(R){
+  ctx.save();
+  ctx.strokeStyle = S.theme === 'light' ? 'rgba(40,60,120,0.55)' : 'rgba(159,194,255,0.6)';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6,5]);
+  const x0 = Math.max(0.5, R.x0+0.5), y0 = Math.max(0.5, R.y0+0.5);
+  ctx.strokeRect(x0, y0, S.decW-1, S.decH-1);
+  ctx.restore();
+}
+
+// ---- readout ---------------------------------------------------------------
+// which text shows through the slit: the single clear slit sits over cling-phase
+// [0,P/3). A slit at column x reveals the printed column x, whose text third is
+// sub = floor((x%P)/(P/3)) -> 0/1/2. The center of the slit band (cling phase
+// P/6) maps to sticker column (dragX + P/6): near dragX 0 the slit lands on
+// logotype columns (sub 0), near +P/3 on date (sub 1), near +2P/3 on location (sub 2).
+const FRAME_INFO = [
+  { cls: 'frameA', label: 'logotype' },
+  { cls: 'frameB', label: 'date' },
+  { cls: 'frameC', label: 'location' },
+];
+function revealedFrame(){
+  const P = S.P, third = P / 3;
+  const ph = (((S.dragX + third/2) % P) + P) % P;   // sticker column under slit center
+  return Math.min(2, Math.floor(ph / third));       // 0/1/2, guard the top edge
+}
+function updateReadout(){
+  const el = document.getElementById('readout'); if (!el) return;
+  const P = S.P, third = P / 3;
+  if (!S.decVisible){
+    el.innerHTML = `raw static print · clean topo field + text band (no cling)`;
+    return;
+  }
+  const fi = FRAME_INFO[revealedFrame()];
+  const vy = S.dragY !== 0 ? ` · dragY ${S.dragY.toFixed(0)}px` : '';
+  el.innerHTML = `<span class="${fi.cls}">${fi.label}</span> showing · dragX <b>${S.dragX.toFixed(0)}px</b> · slit ${third.toFixed(1)}px / bar ${(2*third).toFixed(1)}px${vy}`;
+}
+
+// ============================================================================
+//  Interaction
+// ============================================================================
+let dragging = false, lastPX = 0, lastPY = 0;
+function toCanvas(e){
+  const rect = cv.getBoundingClientRect();
+  return { x: (e.clientX - rect.left) * (W/rect.width), y: (e.clientY - rect.top) * (H/rect.height) };
+}
+cv.addEventListener('pointerdown', e => {
+  if (!S.decVisible) return;
+  const p = toCanvas(e); dragging = true; lastPX = p.x; lastPY = p.y;
+  cv.setPointerCapture(e.pointerId);
+});
+cv.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  const p = toCanvas(e);
+  S.dragX += (p.x - lastPX); S.dragY += (p.y - lastPY);
+  lastPX = p.x; lastPY = p.y; clampDrag();
+});
+cv.addEventListener('pointerup', () => { dragging = false; });
+cv.addEventListener('pointercancel', () => { dragging = false; });
+function clampDrag(){
+  const maxX = (W - S.decW)/2 + 70, maxY = (H - S.decH)/2 + 50;
+  S.dragX = Math.max(-maxX, Math.min(maxX, S.dragX));
+  S.dragY = Math.max(-maxY, Math.min(maxY, S.dragY));
+}
+window.addEventListener('keydown', e => {
+  if (!S.decVisible) return;
+  const fine = e.shiftKey ? S.P/3 : 1; let used = true;   // Shift = one-third of a period (advances logotype->date->location)
+  switch (e.key){
+    case 'ArrowLeft':  S.dragX -= fine; break;
+    case 'ArrowRight': S.dragX += fine; break;
+    case 'ArrowUp':    S.dragY -= fine; break;
+    case 'ArrowDown':  S.dragY += fine; break;
+    default: used = false;
+  }
+  if (used){ e.preventDefault(); clampDrag(); }
+});
+
+// ============================================================================
+//  Controls
+// ============================================================================
+const $ = id => document.getElementById(id);
+
+// P changes the printed text-band interlace + the cling pitch (the moiré tuning).
+// No field re-render — just rebake the sticker and redraw.
+$('pRange').addEventListener('input', e => {
+  S.P = +e.target.value; $('pVal').textContent = S.P;
+  bakeSticker(); dirty = true;
+});
+// Theme flips ink/paper/field -> re-freeze the field, rebake, redraw.
+$('themeSeg').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  S.theme = b.dataset.th;
+  [...e.currentTarget.children].forEach(c => c.classList.toggle('on', c === b));
+  document.documentElement.style.colorScheme = S.theme;
+  cv.style.background = S.theme === 'light' ? '#f4f4f8' : '#08080c';
+  freezeField(); bakeSticker(); dirty = true;
+});
+// snap so the slit sits over the logotype columns (dragX = 0).
+$('snapLogo').addEventListener('click', () => { S.dragX = 0; S.dragY = 0; dirty = true; });
+// snap so the slit sits over the date columns (dragX = +P/3 — one third forward).
+$('snapDate').addEventListener('click', () => {
+  S.dragX = S.P / 3; S.dragY = 0; clampDrag(); dirty = true;
+});
+// snap so the slit sits over the location columns (dragX = +2P/3 — two thirds forward).
+$('snapLoc').addEventListener('click', () => {
+  S.dragX = 2 * S.P / 3; S.dragY = 0; clampDrag(); dirty = true;
+});
+$('toggleCling').addEventListener('click', e => {
+  S.decVisible = !S.decVisible;
+  e.target.textContent = S.decVisible ? 'hide cling' : 'show cling';
+  dirty = true;
+});
+
+// test hooks for scripted screenshots
+// ============================================================================
+//  PRINT EXPORT — two aligned high-res, antialiased PNGs saved to /print:
+//    sticker.png : OPAQUE. frozen topo field + the 3-frame interlaced text band.
+//    cling.png   : TRANSPARENT. the 1/3-duty barrier bars only (opaque bars,
+//                  transparent slits) — SAME pitch/size so it registers on print.
+//  Text is redrawn as VECTOR at high res (crisp AA, no 1-bit jaggies); the field
+//  is re-rendered by the shader at the export resolution.
+// ============================================================================
+function maskToCanvas(mask, col){
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const c = cv.getContext('2d'); const img = c.createImageData(W, H); const d = img.data;
+  for (let i=0,p=0;i<W*H;i++,p+=4){ if (mask[i]){ d[p]=col[0]; d[p+1]=col[1]; d[p+2]=col[2]; d[p+3]=255; } }
+  c.putImageData(img, 0, 0); return cv;
+}
+function renderFieldExport(EW, EH){
+  const th = THEME[S.theme], t = FIELD_T;
+  const snap = document.createElement('canvas'); snap.width = EW; snap.height = EH;
+  if (!fieldOK){ snap.getContext('2d').drawImage(frozenField, 0, 0, EW, EH); return snap; }
+  const meC=[], meLam=[], meW=[];
+  for (let k=0;k<6;k++){ const c=centers[k];
+    meC.push(c.x+0.07*Math.sin(t*c.rate+c.wob), c.y+0.07*Math.cos(t*c.rate*0.9+c.wob));
+    meLam.push(lamFor(PITCH*RATIOS[srcSpec[k].pk])); meW.push(srcSpec[k].w); }
+  const glc = gl.canvas; glc.width = EW; glc.height = EH;
+  gl.viewport(0,0,EW,EH); gl.useProgram(prog);
+  const loc = n => gl.getUniformLocation(prog, n);
+  gl.uniform2f(loc('res'), EW, EH); gl.uniform1f(loc('ink'), th.field);
+  gl.uniform1f(loc('density'), FIELD_DENSITY);
+  gl.uniform2fv(loc('meC'), meC); gl.uniform1fv(loc('meLam'), meLam); gl.uniform1fv(loc('meW'), meW);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  snap.getContext('2d').drawImage(glc, 0, 0);
+  glc.width = W; glc.height = H; freezeField(); bakeSticker(); composite();   // restore live view
+  return snap;
+}
+async function postCanvas(cv, name){
+  const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
+  const res = await fetch(name, { method:'POST', body: blob });
+  return res.ok;
+}
+window.__exportPrint = async (scale=3) => {
+  const th = THEME[S.theme], EW = W*scale, EH = H*scale, P = S.P*scale, sub = P/3;
+  const rgb = a => `rgb(${a[0]},${a[1]},${a[2]})`;
+  // ---- STICKER (opaque) ----
+  const sc = document.createElement('canvas'); sc.width = EW; sc.height = EH;
+  const g = sc.getContext('2d');
+  g.fillStyle = rgb(th.paper); g.fillRect(0,0,EW,EH);
+  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+  g.drawImage(renderFieldExport(EW,EH), 0, 0);                 // field
+  g.drawImage(maskToCanvas(haloUnion, th.paper), 0, 0, EW, EH); // paper safe-zone island
+  const drawFrame = (f) => {
+    g.save();
+    g.beginPath();
+    for (let x0 = f*sub - P; x0 < EW; x0 += P) g.rect(x0, 0, sub, EH);  // this frame's sub-columns
+    g.clip();
+    if (f === 0){ g.drawImage(maskToCanvas(masks.A.ink, th.ink), 0, 0, EW, EH); }  // solid logo
+    else {
+      g.fillStyle = rgb(th.ink); g.textAlign = 'center'; g.textBaseline = 'middle';
+      if (f === 1){ g.font = `800 ${108*scale}px -apple-system,"Helvetica Neue",Helvetica,Arial,sans-serif`;
+        g.fillText('SUMMER 2026', EW/2, EH*0.44); }
+      else { g.font = `800 ${80*scale}px -apple-system,"Helvetica Neue",Helvetica,Arial,sans-serif`;
+        drawSpaced(g, 'HERMON PARK', EW/2, EH*0.44 - 48*scale, 2*scale);
+        drawSpaced(g, 'LOS ANGELES', EW/2, EH*0.44 + 48*scale, 2*scale); }
+    }
+    g.restore();
+  };
+  drawFrame(0); drawFrame(1); drawFrame(2);
+  // ---- CLING (transparent) ----
+  // the cling is a smaller card you slide over the full sticker — only the bar
+  // PITCH must match (P) for it to register anywhere. Wide enough to clear the
+  // widest text line (the location) with margin; shorter than the full sticker.
+  const CW = Math.round(EW * 0.74), CH = Math.round(S.decH * scale);
+  const cc = document.createElement('canvas'); cc.width = CW; cc.height = CH;
+  const cg = cc.getContext('2d'); cg.clearRect(0,0,CW,CH);
+  cg.fillStyle = rgb(th.paper);   // bars = PAPER colour (white on light / black on dark): they blend
+                                   // into the sticker ground and erase the covered columns, so only
+                                   // the revealed frame's ink shows through the clear slits.
+  for (let x0 = 0; x0 < CW; x0 += P) cg.fillRect(x0 + sub, 0, P - sub, CH);  // bar [sub,P); slit [0,sub) transparent
+  // ---- save both ----
+  const okS = await postCanvas(sc, 'sticker.png');
+  const okC = await postCanvas(cc, 'cling.png');
+  return JSON.stringify({ sticker: okS, cling: okC, EW, EH, P, sub, theme: S.theme });
+};
+
+window.__setState = (o) => { Object.assign(S, o); dirty = true; };
+window.__stickerURL = () => stickerCanvas.toDataURL();   // the static baked print
+window.__render = () => composite();                     // force a display pass (rAF is throttled in background tabs)
+window.__ready = false;
+
+// ============================================================================
+//  LOOP — the sticker is a STATIC print; there is NO timer animation and NO
+//  time-based field motion. We only recomposite (a DISPLAY-only pass: blit the
+//  baked sticker + draw the sliding bars) when the cling or a param actually
+//  changed. Idle => a frozen still, pixel-identical over time. freezeField /
+//  bakeSticker (the expensive work) happen only on P/theme changes, not here.
+// ============================================================================
+let dirty = true;                                   // force first paint
+let lastKey = '';
+function loop(){
+  requestAnimationFrame(loop);
+  const key = S.dragX + '|' + S.dragY + '|' + S.decVisible;
+  if (!dirty && key === lastKey) return;            // nothing changed => draw nothing new
+  lastKey = key; dirty = false;
+  composite();                                      // display only; no time argument
+}
+
+// ---- boot ------------------------------------------------------------------
+function boot(){
+  buildMasks();      // ink + halo masks (solid logotype, date, location) — layout-time, reused
+  freezeField();     // render the ONE clean topo field and freeze it
+  bakeSticker();     // frozen field + 3-frame text-band interlace -> one static bitmap
+  cv.style.background = S.theme === 'light' ? '#f4f4f8' : '#08080c';
+  window.__ready = true;
+  requestAnimationFrame(loop);
+}
+logoImg = new Image();
+logoImg.onload = () => { logoReady = true; boot(); };
+logoImg.onerror = () => { console.warn('logotype.png failed to load; frame A will be blank'); boot(); };
+logoImg.src = 'logotype.png';
+</script>
+</body>
+</html>

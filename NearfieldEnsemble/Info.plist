@@ -18,25 +18,22 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Bluetooth is used to discover nearby devices for the sound installation.</string>
+	<string>Bluetooth senses which other participants are near you; closeness shapes the sound.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
-	<string>Bluetooth is used to discover nearby devices for the sound installation.</string>
-	<key>NSBonjourServices</key>
-	<array>
-		<string>_nearfield._tcp</string>
-		<string>_nearfield._udp</string>
-	</array>
+	<string>Bluetooth senses which other participants are near you; closeness shapes the sound.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>This app uses local network to find other Nearfield devices nearby.</string>
-	<key>NSNearbyInteractionAllowOnceUsageDescription</key>
-	<string>This app uses Nearby Interaction to detect the distance to other phones for the sound installation.</string>
-	<key>NSNearbyInteractionUsageDescription</key>
-	<string>This app uses Nearby Interaction to detect the distance to other phones for the sound installation.</string>
+	<string>Connects to the Nearfield hub on the local network to receive this phone's part in the ensemble.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
-		<string>nearby-interaction</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict>

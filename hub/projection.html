@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nearfield — projection</title>
+<style>
+  html, body { margin:0; height:100%; background:#000; overflow:hidden;
+               font:12px/1.5 -apple-system, sans-serif; color:#9a9aa6; }
+  canvas { position:fixed; inset:0; width:100%; height:100%; }
+  #labels { pointer-events:none; }
+  #bar { position:fixed; top:0; left:0; right:0; padding:10px 14px; display:flex;
+         gap:16px; align-items:baseline; background:linear-gradient(#000c, #0000); }
+  #bar b { color:#d8d8de; letter-spacing:.25em; font-weight:600; }
+  #panel { position:fixed; right:10px; top:44px; width:230px; background:#101016ee;
+           border:1px solid #26262e; border-radius:8px; padding:10px 12px; }
+  #panel label { display:flex; justify-content:space-between; align-items:center;
+                 gap:8px; margin:5px 0; }
+  #panel input[type=range] { width:120px; }
+  #panel .val { font-variant-numeric:tabular-nums; color:#d8d8de; width:34px; text-align:right; }
+  button { background:#1c1c2a; color:#fff; border:1px solid #5a5aff; border-radius:999px;
+           padding:5px 14px; letter-spacing:.08em; cursor:pointer; font-size:11px; margin:3px 4px 0 0; }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="labels"></canvas>
+<div id="bar" class="hidden"><b>NEARFIELD</b> <span>projection</span>
+  <span id="stats"></span></div>
+<div id="panel" class="hidden">
+  <label>drift <input type="range" id="uDrift" min="0" max="3" step="0.05" value="1"><span class="val"></span></label>
+  <label>spring <input type="range" id="uSpring" min="0" max="3" step="0.05" value="1"><span class="val"></span></label>
+  <label>influence r <input type="range" id="uRad" min="0.15" max="0.8" step="0.01" value="0.42"><span class="val"></span></label>
+  <label>density gain <input type="range" id="uDens" min="0" max="3" step="0.05" value="1.9"><span class="val"></span></label>
+  <label>fold <input type="range" id="uFold" min="1" max="12" step="1" value="8"><span class="val"></span></label>
+  <label>beat × <input type="range" id="uBeatX" min="0" max="2" step="0.05" value="1"><span class="val"></span></label>
+  <div>
+    <button id="mField">FIELD</button><button id="mOp">OP-ART</button><button id="mCells">CELLS</button>
+  </div>
+  <button id="bInk">◐ INK</button><button id="bNums">NUMBERS</button>
+</div>
+<script id="projection-core">
+'use strict';
+// Pure logic for the §16 wall. Tested headlessly by
+// simulator/tests/projection.test.mjs (vm-extracted); keep this block free of
+// DOM/WebGL. Mirrors: fnv1a/mulberry32 (nearfield-core), pairBeatHz (§14.2).
+
+function fnv1a(s){let h=0x811c9dc5;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,0x01000193);}return h>>>0;}
+function mulberry32(seed){let a=seed>>>0;return function(){a|=0;a=(a+0x6D2B79F5)|0;let t=Math.imul(a^(a>>>15),1|a);t=(t+Math.imul(t^(t>>>7),61|t))^t;return((t^(t>>>14))>>>0)/4294967296;};}
+const clamp=(x,lo,hi)=>Math.min(Math.max(x,lo),hi);
+const alphaFor=(dt,tau)=>1-Math.exp(-dt/tau);
+const RATIOS=[1,2.07,3.2,4.4];
+const AMPS=[1,0.5,0.3,0.2];
+
+// §14.2: the beat you can hear — smallest Δf among near-coinciding partial
+// pairs (< 25 Hz), else essentially static. tanh-capped like the phones.
+function pairBeatHz(fA,fB,ratios){
+  let best=Infinity;
+  for(const ri of ratios)for(const rj of ratios){
+    const d=Math.abs(fA*ri-fB*rj);
+    if(d<best)best=d;
+  }
+  const raw=best<25?best:0.04;
+  return 1.2*Math.tanh(raw/1.2);
+}
+
+// Piecewise-linear score curve with hold-via-re-mention (§12): collect the
+// keyframes that mention `path`; lerp between neighbors, hold outside.
+function scoreValueAt(score,path,t){
+  if(!score)return null;
+  const pts=[];
+  for(const kf of score.keyframes){
+    if(kf.patch&&path in kf.patch)pts.push([kf.at_s,kf.patch[path]]);
+  }
+  if(!pts.length)return null;
+  if(t<=pts[0][0])return pts[0][1];
+  for(let i=1;i<pts.length;i++){
+    if(t<=pts[i][0]){
+      const [t0,v0]=pts[i-1],[t1,v1]=pts[i];
+      return v0+(v1-v0)*((t-t0)/(t1-t0));
+    }
+  }
+  return pts[pts.length-1][1];
+}
+
+// Edge inference from /status v1 (§16.3): an edge exists while either side's
+// telemetry.focus names the other; e attacks τ3 s, releases τ6 s.
+function updateEdges(edges,frame,dt){
+  const key=(a,b)=>a<b?a+'|'+b:b+'|'+a;
+  const active=new Set();
+  const ids=new Set(frame.participants.map(p=>p.id));
+  for(const p of frame.participants){
+    const f=p.telemetry&&p.telemetry.focus;
+    if(f>=0&&ids.has(f))active.add(key(p.id,f));
+  }
+  for(const k of active)if(!edges.has(k))edges.set(k,{e:0});
+  for(const[k,ed]of edges){
+    ed.active=active.has(k);
+    ed.e+=((ed.active?1:0)-ed.e)*alphaFor(dt,ed.active?3:6);
+    if(!ed.active&&ed.e<0.01)edges.delete(k);
+  }
+  return edges;
+}
+
+// §16.2 layout: seeded homes, wind wander, encounter springs (min-distance
+// stop 0.22), soft repulsion (<0.16), home pull, damping. rand is injected
+// for determinism in tests.
+function seedHome(id,perf){
+  const r=mulberry32(fnv1a(id+'|'+perf+'|wall'));
+  for(let tries=0;tries<8;tries++){
+    const x=(r()*2-1)*0.72,y=(r()*2-1)*0.40;
+    if(Math.hypot(x,y)>0.12)return{x,y};
+  }
+  return{x:0.3,y:0.2};
+}
+function stepLayout(cells,edges,dt,ui,rand){
+  for(const s of cells){
+    const sig=(0.004+0.028*s.W)*ui.drift;
+    s.vx+=(rand()*2-1)*sig*dt*60;s.vy+=(rand()*2-1)*sig*dt*60;
+    s.vx+=(s.home.x-s.x)*0.25*dt;s.vy+=(s.home.y-s.y)*0.25*dt;
+  }
+  for(const ed of edges){
+    const A=cells.find(c=>c.id===ed.a),B=cells.find(c=>c.id===ed.b);
+    if(!A||!B)continue;
+    const dx=B.x-A.x,dy=B.y-A.y,d=Math.hypot(dx,dy)+1e-5;
+    if(d>0.22){ // cells never fuse
+      const pull=0.5*ed.e*ui.spring*dt;
+      A.vx+=dx/d*pull;A.vy+=dy/d*pull;
+      B.vx-=dx/d*pull;B.vy-=dy/d*pull;
+    }
+  }
+  for(let i=0;i<cells.length;i++)for(let j=i+1;j<cells.length;j++){
+    const A=cells[i],B=cells[j];
+    const dx=B.x-A.x,dy=B.y-A.y,d=Math.hypot(dx,dy)+1e-5;
+    if(d<0.16){const f=0.9*(0.16-d)*dt;A.vx-=dx/d*f;A.vy-=dy/d*f;B.vx+=dx/d*f;B.vy+=dy/d*f;}
+  }
+  for(const s of cells){
+    s.vx*=Math.pow(0.6,dt);s.vy*=Math.pow(0.6,dt);
+    s.x=clamp(s.x+s.vx*dt,-0.8,0.8);s.y=clamp(s.y+s.vy*dt,-0.46,0.46);
+  }
+}
+const lamFor=f=>clamp(0.16*Math.pow(220/f,0.55),0.035,0.4);
+
+// FIELD/OP-ART (§16.2 rev 8): encounters align wave directions — azimuths
+// (az) and grating orientations (gr) pull together ∝ 0.25·e·spring.
+function wrapPi(a){return((a+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI;}
+function alignAngles(cells,edges,dt,spring){
+  const by=new Map(cells.map(c=>[c.id,c]));
+  for(const ed of edges){
+    const A=by.get(ed.a),B=by.get(ed.b);
+    if(!A||!B)continue;
+    for(const k of['az','gr']){
+      const d=wrapPi(B[k]-A[k]);
+      A[k]+=d*0.25*ed.e*spring*dt;B[k]-=d*0.25*ed.e*spring*dt;
+    }
+  }
+}
+
+// §16.4 fringe motion: a participant's waves move only while encountering —
+// phase velocity (Hz) = Σ e·pairBeatHz over their edges, capped at 1.2.
+function beatVel(cellId,edges,by,ratios){
+  let v=0;
+  for(const ed of edges){
+    if(ed.a!==cellId&&ed.b!==cellId)continue;
+    const A=by.get(ed.a),B=by.get(ed.b);
+    if(!A||!B)continue;
+    const fA=A.pitch*Math.pow(2,(A.det||0)/1200);
+    const fB=B.pitch*Math.pow(2,(B.det||0)/1200);
+    v+=ed.e*pairBeatHz(fA,fB,ratios);
+  }
+  return Math.min(v,1.2);
+}
+
+if(typeof globalThis!=='undefined'){
+  Object.assign(globalThis,{fnv1a,mulberry32,clamp,alphaFor,RATIOS,AMPS,
+    pairBeatHz,scoreValueAt,updateEdges,seedHome,stepLayout,lamFor,
+    wrapPi,alignAngles,beatVel});
+}
+</script>
+<script>
+'use strict';
+// §16 renderer shell: /status polling in, interference field out. The core
+// functions come from the projection-core block above (same document).
+const NF_SCORE = /*NF_SCORE*/ null; // hub inlines config/score.json here
+
+// ---------- state -------------------------------------------------------------
+const P={byId:new Map(),edges:new Map(),perf:null,scoreT:null,scoreAt:0,
+         gongT:null,firedGongs:new Set()};
+let statusOk=false;
+
+async function poll(){
+  try{
+    const u=new URL('status'+location.search,location.href);
+    const s=await(await fetch(u)).json();
+    statusOk=true;
+    if(P.perf!==null&&s.performance_id!==P.perf){P.byId.clear();P.edges.clear();P.firedGongs.clear();}
+    P.perf=s.performance_id;
+    P.scoreT=s.score_t;P.scoreAt=performance.now()/1000;
+    ingest(s);
+    if(s.projection)applyShared(s.projection); // hub is the source of truth (§16.5)
+  }catch(e){statusOk=false;}
+}
+function applyShared(p){
+  mode=p.mode;inkVal=p.ink;
+  for(const[id,key]of[['uFold','fold'],['uDens','density'],['uBeatX','beat_x']]){
+    const el=document.getElementById(id);
+    if(document.activeElement!==el&&+el.value!==p[key]){el.value=p[key];el.oninput&&el.oninput();}
+  }
+}
+function sendShared(params){
+  const u='set-projection'+location.search+(location.search?'&':'?')+params;
+  fetch(new URL(u,location.href)).catch(()=>{});
+}
+setInterval(poll,1000);poll();
+
+function ingest(frame){
+  for(const p of frame.participants){
+    let s=P.byId.get(p.id);
+    if(!s){
+      const home=seedHome(p.id,P.perf);
+      const r=mulberry32(fnv1a(p.id+'|'+P.perf+'|dir'));
+      s={id:p.id,role:p.role,pitch:p.pitch_hz,home,x:home.x,y:home.y,vx:0,vy:0,
+         W:0,B:0,det:0,arrive:0,phase:mulberry32(fnv1a(p.id+'|ph'))()*6.28,
+         az:r()*Math.PI*2,   // FIELD: off-frame source azimuth
+         gr:r()*Math.PI};    // OP-ART: grating orientation
+      P.byId.set(p.id,s);
+    }
+    const tm=p.telemetry||{};
+    s.tW=clamp(tm.W||0,0,1);s.tB=clamp(tm.B||0,0,1);s.tDet=tm.detune_cents||0;
+    s.online=p.online;
+  }
+  updateEdges(P.edges,frame,1); // 1 s between polls
+}
+
+// score position free-runs between polls, like the phones (§12.3)
+function scoreNow(){
+  if(P.scoreT===null)return null;
+  return Math.min(P.scoreT+(performance.now()/1000-P.scoreAt),NF_SCORE?NF_SCORE.duration_s:960);
+}
+
+// ---------- WebGL ---------------------------------------------------------------
+const MAXS=64,MAXB=16;
+const canvas=document.getElementById('gl');
+const gl=canvas.getContext('webgl',{antialias:true});
+gl.getExtension('OES_standard_derivatives');
+const FS=`
+#extension GL_OES_standard_derivatives : enable
+precision highp float;
+uniform vec2 res;uniform float breathScale,rad,densG,ink;uniform int nSrc,nBr,mode,fold;
+uniform vec4 srcA[${MAXS}]; // radial: x, y, lambda, weight | grating: dirx, diry, lambda, weight
+uniform vec2 srcB[${MAXS}]; // phase, densVal
+uniform vec4 brA[${MAXB}];  // ax, ay, bx, by (CELLS mode only)
+uniform vec4 brB[${MAXB}];  // lamA, lamB, phase(animated), strength
+float hair(float v,float n,float w){
+  float q=v*n;float d=abs(fract(q)-0.5)/(fwidth(q)+1e-5);
+  return 1.0-smoothstep(w,w+1.0,d);}
+float segDist(vec2 p,vec2 a,vec2 b){
+  vec2 ab=b-a;float t=clamp(dot(p-a,ab)/(dot(ab,ab)+1e-6),0.0,1.0);
+  return length(p-(a+ab*t));}
+void main(){
+  vec2 uv=(gl_FragCoord.xy-0.5*res)/min(res.x,res.y);
+  uv*=breathScale;
+  // kaleidoscope (§16.2): fold the plane into a mirrored wedge — the whole
+  // ensemble becomes one mandala
+  if(fold>1){
+    float rr=length(uv);float th=atan(uv.y,uv.x);
+    float wseg=6.2831853/float(fold);
+    th=abs(mod(th,wseg)-0.5*wseg);
+    uv=rr*vec2(cos(th),sin(th));
+  }
+  float v=0.0;float g=1e-4;float dn=0.0;
+  for(int k=0;k<${MAXS};k++){
+    if(k>=nSrc)break;
+    if(mode==2){ // op-art: gratings; moiré from near wavelengths
+      v+=srcA[k].w*cos(6.2831853*dot(uv,srcA[k].xy)/srcA[k].z+srcB[k].x);
+      g+=srcA[k].w;
+    }else{
+      float r=length(uv-srcA[k].xy);
+      float att=srcA[k].w*(mode==0?smoothstep(rad,rad*0.3,r):1.0);
+      v+=att*cos(6.2831853*r/srcA[k].z+srcB[k].x);
+      g+=att;dn+=att*srcB[k].y;
+    }
+  }
+  // CELLS-mode bridges: corridor-localized motion at the audible beat rate
+  for(int k=0;k<${MAXB};k++){
+    if(k>=nBr)break;
+    float corr=brB[k].w*smoothstep(0.16,0.05,segDist(uv,brA[k].xy,brA[k].zw));
+    float rA=length(uv-brA[k].xy);float rB=length(uv-brA[k].zw);
+    v+=corr*0.5*(cos(6.2831853*rA/brB[k].x+brB[k].z)
+                +cos(6.2831853*rB/brB[k].y-brB[k].z));
+    g+=corr;
+  }
+  float dens=mode==0?max(dn/g,0.5):densG;
+  float c=hair(v/g,dens,0.7)*smoothstep(0.0,0.02,g);
+  gl_FragColor=vec4(vec3(mix(1.0-c,c,ink)),1.0); // ink 1: white lines on black
+}`;
+function compile(t,src){const s=gl.createShader(t);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s;}
+const prog=gl.createProgram();
+gl.attachShader(prog,compile(gl.VERTEX_SHADER,'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}'));
+gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(prog);
+const quad=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+const labels=document.getElementById('labels');const lctx=labels.getContext('2d');
+function resize(){const dpr=Math.min(devicePixelRatio||1,2);
+  canvas.width=innerWidth*dpr;canvas.height=innerHeight*dpr;
+  labels.width=innerWidth*dpr;labels.height=innerHeight*dpr;}
+addEventListener('resize',resize);resize();
+
+// ---------- chrome ---------------------------------------------------------------
+for(const id of['uDrift','uSpring','uRad','uDens','uFold','uBeatX']){
+  const el=document.getElementById(id);
+  const show=()=>el.parentElement.querySelector('.val').textContent=(+el.value).toFixed(2);
+  el.oninput=show;show();
+}
+const uiVal=id=>+document.getElementById(id).value;
+let showNums=false,chromeOn=false,inkVal=1;
+let mode=1; // FIELD default (§16.2); all modes are live performance controls
+const MODES=['CELLS','FIELD','OP-ART'];
+document.getElementById('mCells').onclick=()=>{mode=0;sendShared('mode=0');};
+document.getElementById('mField').onclick=()=>{mode=1;sendShared('mode=1');};
+document.getElementById('mOp').onclick=()=>{mode=2;sendShared('mode=2');};
+document.getElementById('bInk').onclick=()=>{inkVal=1-inkVal;sendShared('ink='+inkVal);};
+document.getElementById('bNums').onclick=()=>showNums=!showNums;
+for(const[id,key]of[['uFold','fold'],['uDens','density'],['uBeatX','beat_x']])
+  document.getElementById(id).onchange=e=>sendShared(key+'='+e.target.value);
+addEventListener('keydown',e=>{if(e.key==='h'){chromeOn=!chromeOn;
+  document.getElementById('bar').classList.toggle('hidden',!chromeOn);
+  document.getElementById('panel').classList.toggle('hidden',!chromeOn);}});
+
+// ---------- advance + render ------------------------------------------------------
+const bridgePhases=new Map(); // pairKey -> phase
+let lastT=null,breath=0;
+function advance(){
+  const now=performance.now()/1000;
+  let el=lastT===null?0.016:Math.min(now-lastT,2);lastT=now;
+  while(el>0){
+    const dt=Math.min(el,0.05);el-=dt;
+    const cells=[...P.byId.values()];
+    for(const s of cells){
+      s.W+=((s.tW??0)-s.W)*alphaFor(dt,2);s.B+=((s.tB??0)-s.B)*alphaFor(dt,1.5);
+      s.det+=((s.tDet||0)-s.det)*alphaFor(dt,2);
+      s.arrive=Math.min(1,s.arrive+dt/4);
+    }
+    const edgesArr=[...P.edges.entries()].map(([k,ed])=>{
+      const[a,b]=k.split('|').map(Number);return{a,b,e:ed.e,key:k};});
+    stepLayout(cells,edgesArr,dt,{drift:uiVal('uDrift'),spring:uiVal('uSpring')},Math.random);
+    alignAngles(cells,edgesArr,dt,uiVal('uSpring'));
+    // §16.4: waves move only while encountering — phase velocity at the
+    // audible beat rule, scaled by the operator's beat× control
+    const by=new Map(cells.map(c=>[c.id,c]));
+    const beatX=uiVal('uBeatX');
+    for(const s of cells){
+      s.phase+=6.2831853*beatVel(s.id,edgesArr,by,RATIOS)*beatX*dt;
+    }
+    // CELLS-mode bridge fringe phases advance at the same rule
+    for(const ed of edgesArr){
+      const A=P.byId.get(ed.a),B=P.byId.get(ed.b);
+      if(!A||!B)continue;
+      const fA=A.pitch*Math.pow(2,A.det/1200),fB=B.pitch*Math.pow(2,B.det/1200);
+      bridgePhases.set(ed.key,(bridgePhases.get(ed.key)||0)
+        +6.2831853*pairBeatHz(fA,fB,RATIOS)*beatX*dt);
+    }
+    breath+=dt*2*Math.PI/12;
+  }
+}
+setInterval(()=>{if(performance.now()/1000-(lastT??0)>0.3)advance();},250);
+
+function frame(){
+  requestAnimationFrame(frame);
+  advance();
+  const t=performance.now()/1000;
+  const st=scoreNow();
+  // convergence rides the same curve as the phones' fingerprints (§16.2)
+  const fp=st===null?1:(scoreValueAt(NF_SCORE,'drift.fingerprint_amplitude',st)??1);
+  const cv=1-fp;
+  // section/final gong swells
+  if(st!==null&&NF_SCORE)for(const ev of NF_SCORE.events){
+    if(st>=ev.at_s&&!P.firedGongs.has(ev.at_s)){P.firedGongs.add(ev.at_s);P.gongT=t;}
+  }
+  const cells=[...P.byId.values()];
+  const byB=[...cells].sort((a,b)=>b.B-a.B);
+  const rich=new Set(byB.slice(0,8).map(s=>s.id));
+  const A=new Float32Array(MAXS*4),Bu=new Float32Array(MAXS*2);let n=0;
+  let sumW=0;
+  for(const s of cells){
+    if(n>=MAXS)break;
+    sumW+=s.W;
+    const dim=s.online?1:0.4;                      // offline cells recede
+    const dens=(2+2*s.W)*uiVal('uDens');
+    const f0=s.pitch*Math.pow(2,s.det/1200);
+    const nP=rich.has(s.id)?4:1;
+    for(let k=0;k<nP&&n<MAXS;k++){
+      const th=[0,0.15,0.4,0.65][k];
+      const w=AMPS[k]*(k===0?1:clamp((s.B-th)/0.2,0,1));
+      if(w<0.02)continue;
+      if(mode===2){ // op-art: grating direction (partials fan out slightly)
+        const a=s.gr*(1-cv)+k*0.22;  // final gong: gratings align to unison
+        A[n*4]=Math.cos(a);A[n*4+1]=Math.sin(a);
+      }else if(mode===1){ // field: off-frame radial, converging at the gong
+        const a=s.az+k*0.15;
+        const rad0=1.25*(1-0.98*cv);
+        A[n*4]=Math.cos(a)*rad0;A[n*4+1]=Math.sin(a)*rad0;
+      }else{ // cells: positional layout (soundcheck/comparison)
+        A[n*4]=s.x*(1-cv);A[n*4+1]=s.y*(1-cv);
+      }
+      A[n*4+2]=lamFor(f0*RATIOS[k])*(mode===2?0.6:1);
+      A[n*4+3]=w*s.arrive*dim;
+      Bu[n*2]=s.phase;Bu[n*2+1]=dens;   // phase moves only while encountering
+      n++;
+    }
+  }
+  const densG=(2+2*(cells.length?sumW/cells.length:0))*uiVal('uDens');
+  // strongest bridges into the ≤16 slots (CELLS mode only — corridors need positions)
+  const brList=mode!==0?[]:[...P.edges.entries()]
+    .map(([k,ed])=>{const[a,b]=k.split('|').map(Number);
+      return{k,e:ed.e,A:P.byId.get(a),B:P.byId.get(b)};})
+    .filter(x=>x.A&&x.B&&x.e>0.05)
+    .sort((x,y)=>y.e-x.e).slice(0,MAXB);
+  const bA=new Float32Array(MAXB*4),bB=new Float32Array(MAXB*4);
+  brList.forEach((br,i)=>{
+    bA[i*4]=br.A.x*(1-cv);bA[i*4+1]=br.A.y*(1-cv);
+    bA[i*4+2]=br.B.x*(1-cv);bA[i*4+3]=br.B.y*(1-cv);
+    const fA=br.A.pitch*Math.pow(2,br.A.det/1200),fB=br.B.pitch*Math.pow(2,br.B.det/1200);
+    bB[i*4]=lamFor(fA);bB[i*4+1]=lamFor(fB);
+    bB[i*4+2]=bridgePhases.get(br.k)||0;bB[i*4+3]=br.e;
+  });
+  let bs=1+0.012*Math.sin(breath);
+  if(P.gongT!==null){const g=t-P.gongT;if(g<20)bs*=1+0.05*Math.sin(Math.PI*g/20);else P.gongT=null;}
+  gl.viewport(0,0,canvas.width,canvas.height);
+  gl.useProgram(prog);
+  const loc=nm=>gl.getUniformLocation(prog,nm);
+  gl.uniform2f(loc('res'),canvas.width,canvas.height);
+  gl.uniform1f(loc('breathScale'),bs);
+  gl.uniform1f(loc('rad'),uiVal('uRad')*(1+1.5*cv));
+  gl.uniform1f(loc('densG'),densG);
+  gl.uniform1f(loc('ink'),inkVal);
+  gl.uniform1i(loc('mode'),mode);
+  gl.uniform1i(loc('fold'),uiVal('uFold'));
+  gl.uniform1i(loc('nSrc'),n);
+  gl.uniform1i(loc('nBr'),brList.length);
+  gl.uniform4fv(loc('srcA'),A);
+  gl.uniform2fv(loc('srcB'),Bu);
+  gl.uniform4fv(loc('brA'),bA);
+  gl.uniform4fv(loc('brB'),bB);
+  const pA=gl.getAttribLocation(prog,'p');
+  gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+  gl.enableVertexAttribArray(pA);
+  gl.vertexAttribPointer(pA,2,gl.FLOAT,false,0,0);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+
+  lctx.clearRect(0,0,labels.width,labels.height);
+  if(showNums){
+    lctx.font=`${12*Math.min(devicePixelRatio,2)}px -apple-system`;lctx.fillStyle='#8888ff';
+    const m=Math.min(labels.width,labels.height);
+    for(const s of cells){
+      const px=labels.width/2+s.x*(1-cv)*m,py=labels.height/2-s.y*(1-cv)*m;
+      lctx.fillText(`#${s.id} ${s.role[0]} W${s.W.toFixed(1)}`,px+6,py-6);
+    }
+  }
+  document.getElementById('stats').textContent=
+    `${MODES[mode]}${uiVal('uFold')>1?' ×'+uiVal('uFold'):''} · ${cells.length} phones · ${brList.length} bridges · ${n} sources`
+    +(statusOk?'':' · NO HUB')+(st!==null?` · score ${Math.floor(st/60)}:${String(Math.floor(st%60)).padStart(2,'0')}`:'');
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

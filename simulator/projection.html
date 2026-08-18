@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nearfield — projection sketch</title>
+<style>
+  html, body { margin:0; height:100%; background:#000; overflow:hidden;
+               font:12px/1.5 -apple-system, sans-serif; color:#9a9aa6; }
+  canvas { position:fixed; inset:0; width:100%; height:100%; }
+  #labels { pointer-events:none; }
+  #bar { position:fixed; top:0; left:0; right:0; padding:10px 14px; display:flex;
+         gap:16px; align-items:baseline; background:linear-gradient(#000c, #0000); }
+  #bar b { color:#d8d8de; letter-spacing:.25em; font-weight:600; }
+  #panel { position:fixed; right:10px; top:44px; width:230px; background:#101016ee;
+           border:1px solid #26262e; border-radius:8px; padding:10px 12px; }
+  #panel label { display:flex; justify-content:space-between; align-items:center;
+                 gap:8px; margin:5px 0; }
+  #panel input[type=range] { width:120px; }
+  #panel .val { font-variant-numeric:tabular-nums; color:#d8d8de; width:34px; text-align:right; }
+  button { background:#1c1c2a; color:#fff; border:1px solid #5a5aff; border-radius:999px;
+           padding:5px 14px; letter-spacing:.08em; cursor:pointer; font-size:11px; margin:3px 4px 0 0; }
+  .hidden { display:none !important; }
+  #hint { color:#5a5a66; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="labels"></canvas>
+<div id="bar"><b>NEARFIELD</b> <span>projection sketch — layout 1: leaves in the wind</span>
+  <span id="stats"></span> <span id="hint">press <b>h</b> to hide chrome</span></div>
+<div id="panel">
+  <label>drift <input type="range" id="uDrift" min="0" max="3" step="0.05" value="1"><span class="val"></span></label>
+  <label>spring <input type="range" id="uSpring" min="0" max="3" step="0.05" value="1"><span class="val"></span></label>
+  <label>influence r <input type="range" id="uRad" min="0.15" max="0.8" step="0.01" value="0.42"><span class="val"></span></label>
+  <label>density gain <input type="range" id="uDens" min="0" max="3" step="0.05" value="1"><span class="val"></span></label>
+  <label>beat rate <input type="range" id="uBeat" min="0" max="0.03" step="0.001" value="0.008"><span class="val"></span></label>
+  <label>encounters <input type="range" id="uEnc" min="0" max="3" step="0.05" value="1"><span class="val"></span></label>
+  <label>phones <input type="range" id="uN" min="6" max="50" step="1" value="30"><span class="val"></span></label>
+  <label>fold <input type="range" id="uFold" min="1" max="12" step="1" value="1"><span class="val"></span></label>
+  <div>
+    <button id="mField">FIELD</button><button id="mOp">OP-ART</button><button id="mCells">CELLS</button>
+  </div>
+  <div>
+    <button id="bGong">SECTION GONG</button><button id="bFinal">FINAL GONG</button>
+    <button id="bNums">NUMBERS</button><button id="bReset">RESET</button>
+  </div>
+</div>
+<script>
+'use strict';
+// Projection sketch (spec-§14 motifs, whole-ensemble view). Design constraint:
+// the RENDERER consumes only what /status v1 provides — roster + per-phone
+// {W, B, focus, detune_cents} at 1 Hz. The fake ensemble below emits exactly
+// those frames; swap it for fetch('/status') polling and this file is the
+// real hub projection page.
+
+// ---------- shared core (mirrors nearfield-core) ------------------------------
+function fnv1a(s){let h=0x811c9dc5;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,0x01000193);}return h>>>0;}
+function mulberry32(seed){let a=seed>>>0;return function(){a|=0;a=(a+0x6D2B79F5)|0;let t=Math.imul(a^(a>>>15),1|a);t=(t+Math.imul(t^(t>>>7),61|t))^t;return((t^(t>>>14))>>>0)/4294967296;};}
+const clamp=(x,lo,hi)=>Math.min(Math.max(x,lo),hi);
+const alphaFor=(dt,tau)=>1-Math.exp(-dt/tau);
+
+const SCALE={base:220,po:2.07,cents:[0,551.2,754.0,957.5],registers:{anchor:-1,voice:0,shimmer:1}};
+const AMPS=[1,0.5,0.3,0.2];
+function assign(i){
+  // mirrors the hub Assigner: anchors 1-in-8, shimmer 1-in-6 (ceil), degree i%4
+  let role='voice';
+  assign.a=assign.a||0; assign.s=assign.s||0;
+  if(assign.a<Math.ceil((i+1)/8)){role='anchor';assign.a++;}
+  else if(assign.s<Math.ceil((i+1)/6)){role='shimmer';assign.s++;}
+  const deg=i%SCALE.cents.length, reg=SCALE.registers[role];
+  const pitch=SCALE.base*Math.pow(SCALE.po,reg)*Math.pow(2,SCALE.cents[deg]/1200);
+  return {id:i,role,deg,reg,pitch};
+}
+
+// ---------- fake ensemble -> /status frames -----------------------------------
+// Agents wander a 16x10 m room; proximity drives encounters; produces the same
+// numbers real phones send. The projection never sees these positions.
+const room={W:16,H:10,agents:[],pairs:new Map(),t:0};
+function pairKey(a,b){return a<b?a+'|'+b:b+'|'+a;}
+function resetRoom(n){
+  assign.a=0;assign.s=0;
+  room.agents=[];room.pairs=new Map();
+  const r=mulberry32(20260705);
+  for(let i=0;i<n;i++){
+    const a=assign(i);
+    room.agents.push({...a,x:1+r()*(room.W-2),y:1+r()*(room.H-2),
+      vx:0,vy:0,seek:r()*20,W:0.2+r()*0.3,detFp:0,joinAt:i*0.8,joined:false});
+  }
+}
+function roomTick(dt,encMult){
+  room.t+=dt;
+  const ag=room.agents.filter(a=>a.joined||(a.joined=room.t>=a.joinAt));
+  for(const a of ag){
+    // wander: seek a new waypoint now and then; anchors barely move
+    a.seek-=dt;
+    const still=a.role==='anchor'?0.15:1;
+    if(a.seek<=0){a.tx=0.8+Math.random()*(room.W-1.6);a.ty=0.8+Math.random()*(room.H-1.6);a.seek=6+Math.random()*18;}
+    if(a.tx!==undefined){
+      const dx=a.tx-a.x,dy=a.ty-a.y,d=Math.hypot(dx,dy);
+      if(d>0.3){a.vx+=(dx/d)*0.25*dt*still;a.vy+=(dy/d)*0.25*dt*still;}
+    }
+    a.vx*=0.98;a.vy*=0.98;a.x=clamp(a.x+a.vx,0.5,room.W-0.5);a.y=clamp(a.y+a.vy,0.5,room.H-0.5);
+    const speed=Math.hypot(a.vx,a.vy)/dt*0; // (kept simple: use velocity magnitude)
+    const motion=clamp(Math.hypot(a.vx,a.vy)*22,0,1);
+    a.W+=(motion-a.W)*alphaFor(dt,motion>a.W?4:14);
+    a.detFp+=((Math.random()*2-1)*3-a.detFp)*alphaFor(dt,20); // lazy fingerprint wobble
+  }
+  for(let i=0;i<ag.length;i++)for(let j=i+1;j<ag.length;j++){
+    const A=ag[i],B=ag[j],k=pairKey(A.id,B.id);
+    let p=room.pairs.get(k);
+    if(!p){p={E:0,F:0,near:0};room.pairs.set(k,p);}
+    const d=Math.hypot(A.x-B.x,A.y-B.y);
+    const isNear=d<2.0*encMult;
+    p.near=clamp(p.near+(isNear?dt/2:-dt/4),0,1); // crude 2s-on/4s-off debounce
+    const active=p.near>0.9;
+    const target=active?(1-0.7*p.F):0;
+    p.E+=(target-p.E)*alphaFor(dt,active?6:8);
+    p.F=clamp(p.F+(active?dt/25:-dt/45),0,1);
+  }
+}
+function statusFrame(){
+  // exactly the /status v1 shape the projection will poll
+  const parts=[];
+  for(const a of room.agents){
+    if(!a.joined)continue;
+    let bestE=0,focus=-1;
+    for(const b of room.agents){
+      if(b.id===a.id||!b.joined)continue;
+      const p=room.pairs.get(pairKey(a.id,b.id));
+      if(p&&p.E>bestE){bestE=p.E;focus=b.id;}
+    }
+    const B=bestE*(0.4+0.6*a.W);
+    parts.push({id:a.id,role:a.role,pitch_hz:a.pitch,online:true,
+      telemetry:{W:a.W,B,focus:bestE>0.12?focus:-1,detune_cents:-8*bestE+a.detFp}});
+  }
+  return {participants:parts};
+}
+
+// ---------- projection renderer (status frames in, field out) -----------------
+const P={byId:new Map(),edges:new Map(),perf:'wall-demo',converge:0,convergeT:null,gongT:null};
+function seedHome(id){
+  const r=mulberry32(fnv1a(id+'|'+P.perf+'|wall'));
+  // spread across the wall, biased off exact center
+  for(let tries=0;tries<8;tries++){
+    const x=(r()*2-1)*0.72,y=(r()*2-1)*0.40;
+    if(Math.hypot(x,y)>0.12)return{x,y};
+  }
+  return{x:0.3,y:0.2};
+}
+function ingest(frame){
+  const seen=new Set();
+  for(const p of frame.participants){
+    seen.add(p.id);
+    let s=P.byId.get(p.id);
+    if(!s){
+      const home=seedHome(p.id);
+      const r=mulberry32(fnv1a(p.id+'|'+P.perf+'|dir'));
+      s={id:p.id,role:p.role,pitch:p.pitch_hz,home,x:home.x,y:home.y,vx:0,vy:0,
+         W:0,B:0,det:0,arrive:0,phase:mulberry32(fnv1a(p.id+'|ph'))()*6.28,
+         az:r()*Math.PI*2,   // FIELD: off-frame source azimuth
+         gr:r()*Math.PI};    // OP-ART: grating orientation
+      P.byId.set(p.id,s);
+    }
+    s.tW=clamp(p.telemetry.W,0,1);s.tB=clamp(p.telemetry.B,0,1);s.tDet=p.telemetry.detune_cents;
+    s.focus=p.telemetry.focus;
+  }
+  // edges from focus fields (either direction counts)
+  const active=new Set();
+  for(const p of frame.participants){
+    const f=p.telemetry.focus;
+    if(f>=0&&seen.has(f)){active.add(pairKey(p.id,f));}
+  }
+  for(const k of active)if(!P.edges.has(k))P.edges.set(k,{e:0});
+  for(const[k,ed]of P.edges){ed.active=active.has(k);if(!ed.active&&ed.e<0.01)P.edges.delete(k);}
+}
+function physics(dt,ui){
+  const parts=[...P.byId.values()];
+  for(const s of parts){
+    s.W+=(s.tW-s.W)*alphaFor(dt,2);s.B+=(s.tB-s.B)*alphaFor(dt,1.5);
+    s.det=(s.det??0)+((s.tDet||0)-(s.det||0))*alphaFor(dt,2);
+    s.arrive=Math.min(1,s.arrive+dt/4); // join ripple: weight fades in
+    // wind wander — gentle, W-scaled (a walker's cell breathes; nobody needs to shake)
+    const sig=(0.004+0.028*s.W)*ui.drift;
+    s.vx+=(Math.random()*2-1)*sig*dt*60;s.vy+=(Math.random()*2-1)*sig*dt*60;
+    // home pull
+    s.vx+=(s.home.x-s.x)*0.25*dt;s.vy+=(s.home.y-s.y)*0.25*dt;
+  }
+  // encounter springs (inferred e from focus edges)
+  const wrapPi=a=>((a+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI;
+  for(const[k,ed]of P.edges){
+    ed.e+=((ed.active?1:0)-ed.e)*alphaFor(dt,ed.active?3:6);
+    const[ia,ib]=k.split('|').map(Number);
+    const A=P.byId.get(ia),Bp=P.byId.get(ib);
+    if(!A||!Bp)continue;
+    const dx=Bp.x-A.x,dy=Bp.y-A.y,d=Math.hypot(dx,dy)+1e-5;
+    const pull=0.5*ed.e*ui.spring*dt;
+    const stop=d>0.22?1:0; // springs never fuse two cells
+    A.vx+=dx/d*pull*stop;A.vy+=dy/d*pull*stop;
+    Bp.vx-=dx/d*pull*stop;Bp.vy-=dy/d*pull*stop;
+    // FIELD/OP-ART: encounters align wave directions — interacting families
+    // weave into each other instead of moving points around
+    const dAz=wrapPi(Bp.az-A.az),dGr=wrapPi(Bp.gr-A.gr);
+    A.az+=dAz*0.25*ed.e*ui.spring*dt;Bp.az-=dAz*0.25*ed.e*ui.spring*dt;
+    A.gr+=dGr*0.25*ed.e*ui.spring*dt;Bp.gr-=dGr*0.25*ed.e*ui.spring*dt;
+  }
+  // soft pairwise repulsion — the anti-blob lesson from the Dance sim
+  for(let i=0;i<parts.length;i++)for(let j=i+1;j<parts.length;j++){
+    const A=parts[i],B=parts[j];
+    const dx=B.x-A.x,dy=B.y-A.y,d=Math.hypot(dx,dy)+1e-5;
+    if(d<0.16){const f=0.9*(0.16-d)*dt;A.vx-=dx/d*f;A.vy-=dy/d*f;B.vx+=dx/d*f;B.vy+=dy/d*f;}
+  }
+  for(const s of parts){
+    s.vx*=Math.pow(0.6,dt);s.vy*=Math.pow(0.6,dt);
+    s.x=clamp(s.x+s.vx*dt,-0.8,0.8);s.y=clamp(s.y+s.vy*dt,-0.46,0.46);
+    // phase advances at (scaled) true sounding frequency offset -> every pair
+    // of cells drifts against each other at its real beat rate
+    const f=s.pitch*Math.pow(2,(s.det||0)/1200);
+    s.phase+=6.2831853*ui.beat*(f-220)*dt;
+  }
+  // score moments
+  if(P.convergeT!==null){
+    const t=performance.now()/1000-P.convergeT;
+    P.converge=t<8?Math.min(1,t/6):t<20?1:Math.max(0,1-(t-20)/10);
+    if(t>32)P.convergeT=null;
+  }else P.converge*=Math.pow(0.5,dt);
+}
+const lamFor=f=>clamp(0.16*Math.pow(220/f,0.55),0.035,0.4);
+
+// ---------- WebGL --------------------------------------------------------------
+const MAX=64;
+const canvas=document.getElementById('gl');
+const gl=canvas.getContext('webgl',{antialias:true});
+gl.getExtension('OES_standard_derivatives');
+const FS=`
+#extension GL_OES_standard_derivatives : enable
+precision highp float;
+uniform vec2 res;uniform float breathScale,rad,densG;uniform int nSrc,mode,fold;
+uniform vec4 srcA[${MAX}]; // radial: x, y, lambda, weight | grating: dirx, diry, lambda, weight
+uniform vec2 srcB[${MAX}]; // phase, densVal
+float hair(float v,float n,float w){
+  float q=v*n;float d=abs(fract(q)-0.5)/(fwidth(q)+1e-5);
+  return 1.0-smoothstep(w,w+1.0,d);}
+void main(){
+  vec2 uv=(gl_FragCoord.xy-0.5*res)/min(res.x,res.y);
+  uv*=breathScale;
+  // kaleidoscope: fold the plane into a mirrored wedge — every contribution
+  // becomes petals of one collective mandala
+  if(fold>1){
+    float rr=length(uv);float th=atan(uv.y,uv.x);
+    float wseg=6.2831853/float(fold);
+    th=abs(mod(th,wseg)-0.5*wseg);
+    uv=rr*vec2(cos(th),sin(th));
+  }
+  float v=0.0;float g=1e-4;float dn=0.0;
+  for(int k=0;k<${MAX};k++){
+    if(k>=nSrc)break;
+    if(mode==2){ // op-art: straight gratings, moire from near wavelengths
+      v+=srcA[k].w*cos(6.2831853*dot(uv,srcA[k].xy)/srcA[k].z+srcB[k].x);
+      g+=srcA[k].w;
+    }else{
+      float r=length(uv-srcA[k].xy);
+      float att=srcA[k].w*(mode==0?smoothstep(rad,rad*0.3,r):1.0);
+      v+=att*cos(6.2831853*r/srcA[k].z+srcB[k].x);
+      g+=att;dn+=att*srcB[k].y;
+    }
+  }
+  float dens=mode==0?max(dn/g,0.5):densG;
+  float c=hair(v/g,dens,0.7);
+  gl_FragColor=vec4(vec3(c*smoothstep(0.0,0.02,g)),1.0);
+}`;
+function compile(t,src){const s=gl.createShader(t);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s;}
+const prog=gl.createProgram();
+gl.attachShader(prog,compile(gl.VERTEX_SHADER,'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}'));
+gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(prog);
+const quad=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+const labels=document.getElementById('labels');const lctx=labels.getContext('2d');
+function resize(){const dpr=Math.min(devicePixelRatio||1,2);
+  canvas.width=innerWidth*dpr;canvas.height=innerHeight*dpr;
+  labels.width=innerWidth*dpr;labels.height=innerHeight*dpr;}
+addEventListener('resize',resize);resize();
+
+// ---------- frame loop ----------------------------------------------------------
+const ui={};
+for(const id of['uDrift','uSpring','uRad','uDens','uBeat','uEnc','uN','uFold']){
+  const el=document.getElementById(id);
+  const show=()=>el.parentElement.querySelector('.val').textContent=(+el.value).toFixed(el.step<0.01?3:2);
+  el.oninput=show;show();
+}
+const uiVal=id=>+document.getElementById(id).value;
+let showNums=false,chromeOn=true;
+let mode=1; // FIELD is the working hypothesis; CELLS kept for comparison
+const MODES=['CELLS','FIELD','OP-ART'];
+document.getElementById('mCells').onclick=()=>mode=0;
+document.getElementById('mField').onclick=()=>mode=1;
+document.getElementById('mOp').onclick=()=>mode=2;
+document.getElementById('bNums').onclick=()=>showNums=!showNums;
+document.getElementById('bGong').onclick=()=>{P.gongT=performance.now()/1000;};
+document.getElementById('bFinal').onclick=()=>{P.convergeT=performance.now()/1000;};
+document.getElementById('bReset').onclick=()=>{resetRoom(uiVal('uN'));P.byId.clear();P.edges.clear();};
+addEventListener('keydown',e=>{if(e.key==='h'){chromeOn=!chromeOn;
+  document.getElementById('bar').classList.toggle('hidden',!chromeOn);
+  document.getElementById('panel').classList.toggle('hidden',!chromeOn);}});
+document.getElementById('uN').onchange=()=>document.getElementById('bReset').onclick();
+
+resetRoom(30);
+let lastT=null,statusAcc=0,breath=0;
+// advance state on a wall clock, in <=50 ms substeps — occluded/unfocused
+// Chrome throttles rAF, and the sim must keep moving regardless
+function advance(){
+  const now=performance.now()/1000;
+  let el=lastT===null?0.016:Math.min(now-lastT,2);lastT=now;
+  while(el>0){
+    const dt=Math.min(el,0.05);el-=dt;
+    roomTick(dt,uiVal('uEnc'));          // the fake room (stands in for reality)
+    statusAcc+=dt;
+    if(statusAcc>=1){statusAcc=0;ingest(statusFrame());} // 1 Hz, like /status polling
+    physics(dt,{drift:uiVal('uDrift'),spring:uiVal('uSpring'),beat:uiVal('uBeat')});
+    breath+=dt*2*Math.PI/12;
+  }
+}
+setInterval(()=>{if(performance.now()/1000-(lastT??0)>0.3)advance();},250);
+function frame(){
+  requestAnimationFrame(frame);
+  advance();
+  const t=performance.now()/1000;
+
+  // sources: fundamentals always; partials for the top-bloom cells (LOD)
+  const parts=[...P.byId.values()];
+  const byB=[...parts].sort((a,b)=>b.B-a.B);
+  const rich=new Set(byB.slice(0,8).map(s=>s.id));
+  const A=new Float32Array(MAX*4),Bu=new Float32Array(MAX*2);let n=0;
+  const cv=P.converge;
+  let sumW=0;
+  for(const s of parts){
+    if(n>=MAX)break;
+    sumW+=s.W;
+    const dens=(2+2*s.W)*uiVal('uDens');
+    const f0=s.pitch*Math.pow(2,(s.det||0)/1200);
+    const nP=rich.has(s.id)?4:1;
+    for(let k=0;k<nP&&n<MAX;k++){
+      const th=[0,0.15,0.4,0.65][k];
+      const w=AMPS[k]*(k===0?1:clamp((s.B-th)/0.2,0,1));
+      if(w<0.02)continue;
+      if(mode===2){ // op-art: grating direction (partials fan out slightly)
+        const a=s.gr+k*0.22+cv*(0-s.gr); // final gong: all gratings align
+        A[n*4]=Math.cos(a);A[n*4+1]=Math.sin(a);
+      }else if(mode===1){ // field: off-frame radial, converging at the gong
+        const a=s.az+k*0.15;
+        const rad0=1.25*(1-0.98*cv);
+        A[n*4]=Math.cos(a)*rad0;A[n*4+1]=Math.sin(a)*rad0;
+      }else{ // cells: on-frame positions (the rejected baseline, for compare)
+        A[n*4]=s.x*(1-cv);A[n*4+1]=s.y*(1-cv);
+      }
+      A[n*4+2]=lamFor(f0*[1,2.07,3.2,4.4][k])*(mode===2?0.6:1);
+      A[n*4+3]=w*s.arrive;
+      Bu[n*2]=s.phase*[1,2.07,3.2,4.4][k];Bu[n*2+1]=dens;
+      n++;
+    }
+  }
+  const densG=(2+2*(parts.length?sumW/parts.length:0))*uiVal('uDens');
+  let bs=1+0.012*Math.sin(breath);
+  if(P.gongT!==null){const g=t-P.gongT;if(g<20)bs*=1+0.05*Math.sin(Math.PI*g/20);else P.gongT=null;}
+  gl.viewport(0,0,canvas.width,canvas.height);
+  gl.useProgram(prog);
+  const loc=nm=>gl.getUniformLocation(prog,nm);
+  gl.uniform2f(loc('res'),canvas.width,canvas.height);
+  gl.uniform1f(loc('breathScale'),bs);
+  gl.uniform1f(loc('rad'),uiVal('uRad')*(1+1.5*cv));
+  gl.uniform1f(loc('densG'),densG);
+  gl.uniform1i(loc('nSrc'),n);
+  gl.uniform1i(loc('mode'),mode);
+  gl.uniform1i(loc('fold'),uiVal('uFold'));
+  gl.uniform4fv(loc('srcA'),A);
+  gl.uniform2fv(loc('srcB'),Bu);
+  const pA=gl.getAttribLocation(prog,'p');
+  gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+  gl.enableVertexAttribArray(pA);
+  gl.vertexAttribPointer(pA,2,gl.FLOAT,false,0,0);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+
+  // labels overlay (soundcheck legibility)
+  lctx.clearRect(0,0,labels.width,labels.height);
+  if(showNums){
+    lctx.font=`${12*Math.min(devicePixelRatio,2)}px -apple-system`;lctx.fillStyle='#8888ff';
+    const m=Math.min(labels.width,labels.height);
+    for(const s of parts){
+      const px=labels.width/2+s.x*(1-cv)*m,py=labels.height/2-s.y*(1-cv)*m;
+      lctx.fillText(`#${s.id} ${s.role[0]} W${s.W.toFixed(1)}`,px+6,py-6);
+    }
+  }
+  const enc=[...P.edges.values()].filter(e=>e.e>0.2).length;
+  document.getElementById('stats').textContent=
+    `${MODES[mode]}${uiVal('uFold')>1?' ×'+uiVal('uFold'):''} · ${parts.length} phones · ${enc} bridges · ${n} sources`;
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
