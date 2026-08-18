@@ -36,3 +36,4 @@ Carthage/Build/
 build/
 *.app
 __pycache__/
+.gstack/

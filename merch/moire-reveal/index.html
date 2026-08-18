@@ -120,7 +120,7 @@
   <div class="readout" id="readout">—</div>
 
   <div class="note">
-    <b>Technique:</b> band-moiré magnification / sampling-moiré (Hutley; Kamal, Voelkel &amp; Alda 1998; Amidror; Hersch &amp; Chosson band-moiré, SIGGRAPH 2004 — the effect on banknote threads). <b>1-D line</b> (default, best for text): base = thin bands at pitch p<sub>b</sub>, each a vertically-squashed whole wordmark; cling = a line grating at p<sub>r</sub> near p<sub>b</sub>; sampling magnifies vertically by <b>M = p<sub>r</sub>/(p<sub>r</sub>-p<sub>b</sub>)</b> while horizontal stays 1:1, so letters keep full crispness. A cling shift moves the reveal by M times the shift (optical speedup) — translation just repositions the (periodic) word, so it's essentially free. Wrong p<sub>r</sub> just rescales M — forgiving to about 10-15%. The catch: a rotation tilts the reveal by M times the angle, which for a 1-D magnifier <i>shears</i> the vertical mapping, so it holds only to about 0.5-1&deg;. <b>2-D dot</b> mode (pinhole array over a grid of tiny whole wordmarks) magnifies both axes and tolerates more rotation, but reconstructs text only at ~M samples across, so a fine wordmark reads coarsely — better for bold marks. Drag the canvas to move the cling; arrow keys nudge (Shift = 5px).
+    <b>Technique:</b> band-moiré magnification / sampling-moiré (Hutley; Kamal, Voelkel &amp; Alda 1998; Amidror; Hersch &amp; Chosson band-moiré, SIGGRAPH 2004 — the effect on banknote threads). <b>1-D line</b> (default, best for text): base = thin bands at pitch p<sub>b</sub>, each a vertically-squashed whole wordmark; cling = a line grating at p<sub>r</sub> near p<sub>b</sub>; sampling magnifies vertically by <b>M = p<sub>r</sub>/(p<sub>r</sub>-p<sub>b</sub>)</b> while horizontal stays 1:1, so letters keep full crispness. A cling shift moves the reveal by M times the shift (optical speedup) — translation just repositions the (periodic) word, so it's essentially free. Wrong p<sub>r</sub> just rescales M — forgiving to about 10-15%. The catch: a rotation tilts the reveal by M times the angle, which for a 1-D magnifier <i>shears</i> the vertical mapping, so it holds only to about 0.5-1&deg;. <b>2-D dot</b> mode tiles the same idea into a few LARGE copies: the base lays the whole wordmark across a wide period and squashes it into thin bands; a lattice of apertures that are wide in x (full letter detail) and short in y magnifies vertically by M<sub>y</sub> = p<sub>c</sub>/(p<sub>c</sub>-p<sub>b</sub>), so a handful of big, bold copies fill the field (lower the pitch to grow them). The wide-x aperture keeps text bold and legible but, like 1-D, shears under rotation (~0.6-1&deg;). Drag the canvas to move the cling; arrow keys nudge (Shift = 5px).
   </div>
 
 <script>
@@ -217,16 +217,34 @@ const ctx = cv.getContext('2d', { willReadFrequently: true });
 // (not as individually-legible tiny logos). ~11px lands there for this wordmark.
 const P_B = 11.0;
 
-// 2D magnifier cell — ANISOTROPIC: each cell holds one COMPLETE tiny wordmark, and
-// because the wordmark is ~3:1 the cell is ~3:1 too (wide in x, short in y). The
-// reveal magnifies x and y by the SAME M (both pitches share the same Δ ratio), so
-// the revealed wordmark comes out at the wordmark's true aspect, dense and bold —
-// not a faint square sprinkle. p_c below is the y (short-axis) cling pitch; the x
-// pitch scales with the cell aspect so the lattice stays locked to the cells.
-const P_CY = 18.0;                                // cell height (px)
-const P_C  = P_CY;                                // (kept name for readout)
-const CELL_AR = 3.0;                              // cell width / height (≈ wordmark)
-const P_CX = P_CY * CELL_AR;                      // cell width (px)
+// 2D magnifier cell — ANISOTROPIC BAND array. The earlier design put one whole tiny
+// wordmark in every square-ish cell and sampled it with a round pinhole at ~cell pitch;
+// that produced NO magnification — the pinholes just revealed the raw tiny cells, so the
+// field filled with a swarm of dozens of little wordmarks (the reported bug). The reveal
+// size is the moiré BEAT, and with a round point-pinhole an 8-glyph wordmark reconstructs
+// at only ~M samples across (dim, dotty, illegible). We can't get BIG + BOLD + LEGIBLE +
+// scrambled-base all at once from a round pinhole, so 2-D now works like the 1-D band
+// magnifier but tiled and 2-D-sampled:
+//   BASE  — the whole wordmark laid ACROSS a wide X period P_CX (a few copies fit the art)
+//           and squashed into thin P_CY-tall bands in Y (so, like 1-D, the base reads as
+//           fine horizontal striping / scramble, NOT text).
+//   CLING — a lattice of apertures WIDE in x (rxFrac, keeps full horizontal letter detail,
+//           1:1 in x) and SHORT in y (ryFrac, samples one row per band). Because the y
+//           aperture pitch p_c is slightly > P_CY, successive rows sample progressively
+//           shifted band-rows → the wordmark is MAGNIFIED IN Y by M = P_CY/(p_c−P_CY) and
+//           tiles cleanly, giving a HANDFUL of large, bold, legible copies (art_w/P_CX
+//           across × ~art_h/(M·P_CY) down). The trade vs the old round dot: the wide-x
+//           aperture shears under rotation like 1-D (a few °), rather than staying a
+//           rigidly-rotated dot cloud — but the old dot cloud was an illegible dim mush,
+//           so this is the honest win for the stated "bigger/bolder/legible" goal.
+const P_CY = 11.0;                                // base band height (px) — thin => scramble
+const P_CX = 220.0;                               // base wordmark X period (px) => ~4 across
+const P_C  = P_CY;                                // (kept name for readout: the Y base pitch)
+const CELL_AR = P_CX / P_CY;                      // (kept for export/readout compatibility)
+const DOT_RX = 0.92;                              // aperture WIDTH as fraction of x pitch (fixed
+                                                  // wide => keeps horizontal letter detail).
+                                                  // aperture HEIGHT is S.dotFrac (of the y pitch).
+const P_CX_PIN = 44.0;                            // pinhole COLUMN pitch (x) — dense dot cols
 
 const S = {
   mode: '1d',      // '1d' = line-grating band magnifier: renders the wordmark
@@ -242,12 +260,15 @@ const S = {
                    // ~130px-tall copy; balances reveal size vs a little rotation room).
   slitDuty: 0.14,  // clear-slit fraction. THIN — a wide slit smears logo rows.
   // --- 2D dot-array params ---
-  p_c: 19.2,       // cling pinhole y-pitch (px). Just above P_CY=18 => M=P_CY/Δ.
-                   // Δ=1.2 => M=15 (big reveal). Raise Δ (slider) for lower M =
-                   // more rotation-tolerant but smaller logo.
-  dotFrac: 0.34,   // pinhole diameter as a fraction of the cell. Bigger => denser,
-                   // bolder reveal (more ink per magnified pixel) at the cost of a
-                   // little blur; ~0.34 reads the wordmark boldly.
+  p_c: 12.25,      // cling aperture y-pitch (px). Just above P_CY=11 => My=P_CY/(p_c−P_CY).
+                   // p_c=12.25 => Δ=1.25 => My≈8.8 (copy ≈ My·P_CY ≈ 97px tall; ~5 rows of
+                   // big bold copies). LOWER p_c (toward 11) => bigger My => TALLER copies;
+                   // higher => shorter. (This is the fixed "slider knot": smaller Δ = bigger
+                   // reveal, and the range stays valid because P_CY is only 11.)
+  dotFrac: 0.60,   // aperture HEIGHT as a fraction of the y pitch (kept name for the slider/
+                   // export contract). Bigger => more rows sampled per band => bolder, denser
+                   // reveal (a touch more y-blur). The x aperture is fixed wide (DOT_RX) so
+                   // horizontal letter detail stays crisp.
   // --- shared cling placement ---
   dx: 0, dy: 0,    // cling translation (px)
   rot: 0,          // cling rotation (deg)
@@ -394,27 +415,19 @@ function buildBase(){
 }
 
 // ============================================================================
-//  2D BASE  — square grid of cells at pitch P_C, each holding one COMPLETE tiny
-//  wordmark (the whole "nearfield" shrunk into the cell). Stacked, the eye can't
-//  resolve the little logos => a fine dotty scramble. A matching 2D pinhole cling
-//  at pitch p_c ≈ P_C samples one point per cell; because p_c ≠ P_C the sampled
-//  points sweep each cell in BOTH axes, tiling into the logo magnified by
-//  M = P_C/(p_c - P_C) in x AND y. Being a 2-D reconstruction, a small cling
-//  rotation θ rotates the revealed logo by ~M·θ but keeps it a COHERENT (rigidly
-//  rotated) wordmark — so it stays readable while tilted, unlike the 1-D grating
-//  which shears/collapses. That is the rotation-tolerance win.
-//
-//  The tiny cell logo keeps the wordmark's native aspect (≈3:1): we fit it across
-//  the cell width and center it vertically, so v runs 0..1 over the cell but the
-//  logo only occupies the middle band — fine, the magnifier reproduces that.
+//  2D BASE  — the whole wordmark laid across a WIDE X period P_CX (so a few copies
+//  span the art) and squashed into thin P_CY-tall bands in Y. Densely stacked, the
+//  ~P_CY-tall band copies read as fine horizontal striping / scramble — the word is
+//  NOT legible unaided (same encoding idea as the 1-D base). The 2-D aperture cling
+//  keeps x 1:1 (full letter detail) and magnifies Y by My = P_CY/(p_c−P_CY), tiling
+//  the wordmark into a handful of large, bold copies. (See the P_CX/P_CY block above
+//  for why this replaced the round-pinhole dot array, which never magnified and just
+//  showed a swarm of tiny raw cells.)
 // ============================================================================
 const LOGO_AR = LOGO_W / LOGO_H;                 // ≈3 (wordmark aspect)
-// sample the COMPLETE logo mapped into a unit cell (cu,cv)∈[0,1)² -> ink coverage.
-// We FILL the whole cell with the wordmark (horizontally compressed to the cell's
-// square aspect) so the magnified reveal is dense and bold, not a faint sprinkle.
-// The magnifier restores the square cell to a square moiré cell, so the revealed
-// wordmark is horizontally compressed too — we compensate by using a WIDE cell in
-// x vs y (P_CX × P_CY) below, so the reveal comes out at the wordmark's true ~3:1.
+// sample the COMPLETE wordmark mapped into a base cell (cu,cv)∈[0,1)² -> ink coverage.
+// cu spans one wordmark across P_CX (full horizontal detail); cv spans one wordmark
+// squashed into a P_CY band (the vertical scramble the magnifier re-expands).
 function sampleCell(cu, cv){
   return sampleLogo(cu, cv);                       // fill the whole cell
 }
@@ -424,7 +437,7 @@ function build2DBase(){
   const PAPER = th.paper, INK = th.ink;
   const img = baseCtx.createImageData(W, H);
   const o = img.data;
-  const SS = 3;                                    // 2D supersample (3×3)
+  const SSX = 2, SSY = 5;                           // supersample: finer in Y (thin bands)
   for (let y=0;y<H;y++){
     for (let x=0;x<W;x++){
       const p = (y*W + x)*4;
@@ -432,13 +445,13 @@ function build2DBase(){
       const inside = (x>=ART.x0 && x<ART.x1 && y>=ART.y0 && y<ART.y1);
       if (inside){
         let cov = 0;
-        for (let sy=0;sy<SS;sy++) for (let sx=0;sx<SS;sx++){
-          let cu = (((x + (sx+0.5)/SS - ART.x0) / P_CX) % 1);
-          let cv = (((y + (sy+0.5)/SS - ART.y0) / P_CY) % 1);
+        for (let sy=0;sy<SSY;sy++) for (let sx=0;sx<SSX;sx++){
+          let cu = (((x + (sx+0.5)/SSX - ART.x0) / P_CX) % 1);
+          let cv = (((y + (sy+0.5)/SSY - ART.y0) / P_CY) % 1);
           if (cu<0) cu+=1; if (cv<0) cv+=1;
           cov += sampleCell(cu, cv);
         }
-        cov /= (SS*SS);
+        cov /= (SSX*SSY);
         r = PAPER[0] + (INK[0]-PAPER[0])*cov;
         g = PAPER[1] + (INK[1]-PAPER[1])*cov;
         b = PAPER[2] + (INK[2]-PAPER[2])*cov;
@@ -495,23 +508,25 @@ function composite(){
       }
     }
   } else {
-    // 2D pinhole array on an ANISOTROPIC lattice (pcx × pcy) matching the wide
-    // cells. Transparent only inside a small ellipse at each lattice node; else
-    // opaque bar. Distances are normalized per-axis so the pinhole is a round dot
-    // in cell units. Rotation rotates the whole lattice about center.
-    const pcy = S.p_c, pcx = S.p_c * CELL_AR;
-    const rN = S.dotFrac * 0.5;                    // pinhole radius in cell units
-    const r2 = rN*rN;
+    // 2D aperture lattice — WIDE in x (rx≈DOT_RX of the x pitch: keeps horizontal
+    // letter detail, so x stays ~1:1), SHORT in y (ry≈dotFrac of the y pitch: samples
+    // one band-row, so successive rows sweep the band → Y magnification My=P_CY/(p_c−P_CY)).
+    // Transparent inside each ellipse, opaque bar outside. Rotation rotates the whole
+    // lattice about center; the wide-x aperture means a rotation shears the reveal (like
+    // 1-D) rather than rigidly rotating it — the price of a bold, legible 2-D reveal.
+    const pcy = S.p_c, pcx = P_CX_PIN;             // y (magnifier) pitch, x column pitch
+    const rx = DOT_RX * 0.5, ry = S.dotFrac * 0.5; // aperture semi-axes in pitch units
+    const rx2 = rx*rx, ry2 = ry*ry;
     for (let y=0;y<H;y++){
       const dyc = y - cy;
       for (let x=0;x<W;x++){
         const dxc = x - cx - S.dx;
         const lx =  cs*dxc + sn*dyc;
         const ly = -sn*dxc + cs*dyc - S.dy;
-        let fx = ((lx % pcx)/pcx); if (fx<0) fx+=1; if (fx>0.5) fx-=1;   // -0.5..0.5 in cell units
+        let fx = ((lx % pcx)/pcx); if (fx<0) fx+=1; if (fx>0.5) fx-=1;   // -0.5..0.5 in pitch units
         let fy = ((ly % pcy)/pcy); if (fy<0) fy+=1; if (fy>0.5) fy-=1;
-        if (fx*fx + fy*fy > r2){ const p=(y*W+x)*4; d[p]=BAR[0]; d[p+1]=BAR[1]; d[p+2]=BAR[2]; }
-        // else pinhole -> leave base pixel
+        if ((fx*fx)/rx2 + (fy*fy)/ry2 > 1){ const p=(y*W+x)*4; d[p]=BAR[0]; d[p+1]=BAR[1]; d[p+2]=BAR[2]; }
+        // else inside aperture -> leave base pixel
       }
     }
   }
@@ -537,7 +552,7 @@ function updateReadout(){
   const pr = is2d ? S.p_c : S.p_r;
   if (!S.clingVisible){
     if (is2d)
-      el.innerHTML = `<b>raw 2-D base print</b> · grid of ${Math.round((ART.x1-ART.x0)/P_CX)}×${Math.round((ART.y1-ART.y0)/P_CY)} cells (${P_CX.toFixed(0)}×${P_CY.toFixed(0)}px), each a complete tiny nearfield · logo not readable unaided`;
+      el.innerHTML = `<b>raw 2-D base print</b> · ${((ART.y1-ART.y0)/P_CY|0)} bands @ ${P_CY.toFixed(2)}px, each a nearfield squashed across ${P_CX.toFixed(0)}px · reads as fine striping, logo not readable unaided`;
     else
       el.innerHTML = `<b>raw 1-D base print</b> · stack of ${((ART.y1-ART.y0)/P_B|0)} bands @ ${P_B.toFixed(2)}px, each a squashed nearfield copy · logo not readable unaided`;
     return;
@@ -547,21 +562,22 @@ function updateReadout(){
   const M1 = Math.abs(dp) < 1e-4 ? Infinity : (is2d ? pb/dp : pr/dp);
   const p_m = Math.abs(M1) * pb;
   const flip = M1 < 0 ? ' (flipped)' : '';
-  // rotation-smear estimate: revealed image rotates ~M·θ. 1D shears/collapses
-  // fast; 2D stays a rigidly-rotated (readable) logo up to a larger tilt.
+  // rotation-smear estimate: revealed image rotates ~M·θ. Both modes now shear (the 2-D
+  // reveal uses a wide-x aperture, so it magnifies/reconstructs in Y and shears in X on
+  // rotation, like 1-D) — hold to ~0.6-1°.
   const revRot = Math.abs(M1) * Math.abs(S.rot);
+  const copiesX = is2d ? Math.round((ART.x1-ART.x0)/P_CX) : 1;
+  const copyH = Math.abs(p_m);                              // revealed copy height (px)
+  const copiesY = is2d && copyH>1 ? Math.round((ART.y1-ART.y0)/copyH) : 0;
   let health = 'good', hword = 'clearly revealed';
-  if (is2d){
-    if (revRot > 55){ health='warn'; hword='revealed logo tilted far'; }
-  } else {
-    if (Math.abs(S.rot) > 0.6){ health='warn'; hword='rotation shearing the reveal (1-D weakness)'; }
-  }
-  if (Math.abs(M1) > 60 || Math.abs(M1) < 3){ health='warn'; hword='pitch far off — logo very '+(Math.abs(M1)>60?'large':'small'); }
+  if (Math.abs(S.rot) > 0.8){ health='warn'; hword='rotation shearing the reveal'; }
+  if (Math.abs(M1) > 40 || Math.abs(M1) < 3){ health='warn'; hword='pitch far off — copies very '+(Math.abs(M1)>40?'tall':'short'); }
   const Mstr = isFinite(M1) ? (M1>0?'+':'')+M1.toFixed(1)+'×' : '∞ (pitches equal)';
   el.innerHTML =
     `<span class="${health}">${hword}</span> · <b>${is2d?'2-D dot':'1-D line'}</b> · ` +
     `p<sub>b</sub> ${pb.toFixed(2)} · p<sub>r</sub> ${pr.toFixed(2)} · Δp ${dp>=0?'+':''}${dp.toFixed(2)} · ` +
-    `M <b>${Mstr}${flip}</b> · moiré cell ${isFinite(p_m)?p_m.toFixed(0)+'px':'∞'} · ` +
+    `M<sub>${is2d?'y':''}</sub> <b>${Mstr}${flip}</b> · ` +
+    (is2d ? `copies ≈ <b>${copiesX}×${copiesY}</b> @ ${isFinite(copyH)?copyH.toFixed(0):'∞'}px tall · ` : `moiré cell ${isFinite(p_m)?p_m.toFixed(0)+'px':'∞'} · `) +
     `offset (${S.dx.toFixed(0)}, ${S.dy.toFixed(1)})px · rot <b>${S.rot.toFixed(1)}°</b>` +
     (isFinite(revRot)?` · revealed tilt ≈ ${revRot.toFixed(0)}°`:'');
 }
@@ -597,9 +613,11 @@ window.addEventListener('keydown', e=>{
 const $ = id=>document.getElementById(id);
 
 // per-mode pitch config so one slider drives p_c (2D) or p_r (1D).
+// 2D: p_c is the aperture Y pitch just above P_CY=11. My=P_CY/(p_c−P_CY), so the range
+// 11.6..14 spans My≈18 (very tall copies) down to My≈3.7 (short); LOWER p_c = BIGGER reveal.
 const PITCH_CFG = {
-  '2d': { min:18.4, max:22,  step:0.03, get:()=>S.p_c, set:v=>S.p_c=v, pb:P_CY, align:19.2 },
-  '1d': { min:9.5,  max:15,  step:0.02, get:()=>S.p_r, set:v=>S.p_r=v, pb:P_B, align:12.0 },
+  '2d': { min:11.6, max:14,   step:0.01, get:()=>S.p_c, set:v=>S.p_c=v, pb:P_CY, align:12.25 },
+  '1d': { min:9.5,  max:15,   step:0.02, get:()=>S.p_r, set:v=>S.p_r=v, pb:P_B, align:12.0 },
 };
 function pitchCfg(){ return PITCH_CFG[S.mode]; }
 
@@ -640,7 +658,7 @@ $('toggleCling').addEventListener('click', e=>{
 $('snapAlign').addEventListener('click', ()=>{ S.dx=0; S.dy=0; S.rot=0; pitchCfg().set(pitchCfg().align); syncInputs(); dirty=true; });
 $('snapOff').addEventListener('click', ()=>{
   // deliberately askew: translate + rotate + pitch error, tuned per mode.
-  if (S.mode==='2d'){ S.dx=40; S.dy=22; S.rot=3.0; S.p_c=20.1; }
+  if (S.mode==='2d'){ S.dx=40; S.dy=14; S.rot=1.6; S.p_c=13.0; }  // slide + pitch off + tilt (2-D shears)
   else { S.dx=60; S.dy=22; S.rot=0.4; S.p_r=13.0; }   // big slide + pitch off + tiny tilt
   syncInputs(); dirty=true;
 });
@@ -687,11 +705,11 @@ window.__exportPrint = async (scale=3)=>{
   const cg=cc.getContext('2d');
   const cimg=cg.createImageData(EW,EH); const co=cimg.data;
   if(is2d){
-    const pcy=S.p_c*scale, pcx=S.p_c*CELL_AR*scale, rN=S.dotFrac*0.5, r2=rN*rN;
+    const pcy=S.p_c*scale, pcx=P_CX_PIN*scale, rx=DOT_RX*0.5, ry=S.dotFrac*0.5, rx2=rx*rx, ry2=ry*ry;
     for(let y=0;y<EH;y++) for(let x=0;x<EW;x++){
       const p=(y*EW+x)*4;
       let fx=(x%pcx)/pcx; if(fx>0.5)fx-=1; let fy=(y%pcy)/pcy; if(fy>0.5)fy-=1;
-      if(fx*fx+fy*fy<=r2){ co[p+3]=0; } else { co[p]=th.bar[0]; co[p+1]=th.bar[1]; co[p+2]=th.bar[2]; co[p+3]=255; }
+      if((fx*fx)/rx2+(fy*fy)/ry2<=1){ co[p+3]=0; } else { co[p]=th.bar[0]; co[p+1]=th.bar[1]; co[p+2]=th.bar[2]; co[p+3]=255; }
     }
   } else {
     const prs=S.p_r*scale, duty=S.slitDuty;
