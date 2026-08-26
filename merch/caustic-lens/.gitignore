@@ -1,0 +1,12 @@
+# generated experiment outputs (kept locally, not tracked)
+out_disk/
+out_logo/
+out_logo_fine/
+out_word/
+out_word2/
+out_2line/
+
+# intermediate targets (target_combo.png is the tracked one)
+target_wordmark.png
+target_wordmark2.png
+target_2line.png
