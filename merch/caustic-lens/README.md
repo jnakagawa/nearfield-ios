@@ -43,11 +43,19 @@ python caustic_lens.py --image target_combo.png -N 512 --L 200 --d 440 \
 
 Outputs `out_200/nearfield_caustic_lens.stl` + `target.png` + `caustic_sim.png`.
 
-## The deliverable — `out_200/nearfield_caustic_lens.stl`
+## The deliverable
 
-- **200 × 200 mm** footprint, **7.87 mm** thick (3 mm base + 4.87 mm relief)
-- **~0.19 L** clear resin, watertight, ~1.05 M faces (~52 MB)
-- Designed for **n ≈ 1.51 clear resin**, **throw ≈ 440 mm**, collimated light
+Two print-ready sizes (same target, `n ≈ 1.51` clear resin, collimated light):
+
+- **`out_200/nearfield_caustic_lens.stl`** — 200 × 200 mm, 7.87 mm thick, throw ≈ 440 mm,
+  ~0.19 L resin, ~1.05 M faces (~52 MB). Fits a Formlabs Form 3L.
+- **`out_120/nearfield_caustic_lens.stl`** — 120 × 120 mm, 5.92 mm thick, throw ≈ 264 mm,
+  ~0.06 L resin. **Fits an Elegoo Saturn 8K (219 × 123)** and most desktop MSLA; shallower
+  2.9 mm relief (easier to polish). The ideal caustic is scale-invariant, so it reads the same.
+
+Both print **flat** — the shaped top is the optical surface, so no supports or angled layer
+lines on it — then sand progressively fine + clear-coat to polish. Regenerate a size with
+`caustic_lens.py --L <mm> --d <~2.2*L>`.
 
 ## What resolves, and what doesn't
 
