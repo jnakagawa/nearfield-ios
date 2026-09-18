@@ -80,3 +80,35 @@ sharp thin/dark detail. Findings from the ray-trace tests:
   toward a wall **~44 cm** away.
 - The 52 MB / 1 M-face mesh can be decimated ~4× with no visible loss if a slicer
   chokes; a longer throw makes the relief shallower (easier to polish).
+
+## Zeroman lens — `out_zeroman/zeroman_caustic_lens.stl`
+
+![zeroman](RESULT_zeroman.png)
+
+A second lens using the 8-bit Zeroman character. It's a much better caustic subject
+than the topo lines: one bold, solid, high-contrast silhouette (~20% ink) is exactly
+what a caustic can concentrate light into.
+
+- **120 × 120 mm**, ~6.2 mm thick (3 mm base + **3.15 mm relief**), throw ≈ 264 mm,
+  clear resin `n ≈ 1.51`. Fits an Elegoo Saturn 8K.
+- The source art is RGBA with a **transparent** background, so it must be composited
+  onto white first (`target_zeroman_src.png`). Feeding the raw PNG to `convert("L")`
+  reads the transparency as ink (86% "dark") and the target comes out wrong.
+
+```bash
+python caustic_lens.py --image target_zeroman_src.png --invert --blur 1.2 \
+    -N 512 --iters 110 --floor 0.04 --L 120 --d 264 --rays 1700 --res 480 --out out_zeroman
+```
+
+**Don't over-iterate.** Transport iterations past ~150 over-concentrate light into thin
+caustic filaments (ray folding): at 260 iterations the figure dissolves into a spray of
+bright threads *and* the relief balloons to 7.5 mm. Low iteration counts win — they also
+keep the relief shallow, which is what makes it polishable. See `RESULT_zeroman_options.png`.
+
+### Ordering it printed + polished
+
+Send it out in **Accura ClearVue** (SLA, ~92% light transmission — it's made for lenses)
+with a **clear-coat** finish, e.g. Xometry's "SLA Quick Clear". Critical instruction for
+the vendor: **clear-coat only, do not sand or flatten the contoured face** — that surface
+*is* the lens, and abrading it destroys the relief. The flat back face may be polished
+normally.
