@@ -79,6 +79,8 @@
   <h2>Geometry</h2>
   <div class="row"><label>Throw distance <span id="thv">264 mm</span></label>
     <input id="th" type="range" min="80" max="600" step="2" value="264"></div>
+  <div class="row"><label>Refractive index n <span id="iorv">1.51</span></label>
+    <input id="ior" type="range" min="1" max="1.8" step="0.01" value="1.51"></div>
   <div class="row"><label>Exposure <span id="exv">1.00</span></label>
     <input id="ex" type="range" min="0.2" max="3" step="0.05" value="1"></div>
 
@@ -153,6 +155,7 @@ const rim = new THREE.DirectionalLight(0x6d8cff, 0.5); rim.position.set(-200, 80
 // ---- state ---------------------------------------------------------------
 const S = {
   lx: 0, ly: 0, throw_: DESIGN_THROW, exposure: 1,
+  ior: 1.51,
   collimated: true, spin: false, showLens: true, showRays: false, reliefBoost: true,
 };
 let dirty = true, causticDirty = true;
@@ -277,7 +280,7 @@ function renderCaustic(){
   causticMat.uniforms.uRelief.value = META.relief_mm;
   causticMat.uniforms.uSize.value = META.size_mm;
   causticMat.uniforms.uBase.value = META.base_mm;
-  causticMat.uniforms.uIor.value = META.ior;
+  causticMat.uniforms.uIor.value = S.ior;
   causticMat.uniforms.uThrow.value = S.throw_;
   causticMat.uniforms.uCollimated.value = S.collimated ? 1 : 0;
   causticMat.uniforms.uGain.value = 0.020 * S.exposure;
@@ -394,10 +397,10 @@ function buildRays(){
       const nrm = new THREE.Vector3(-hx, -hy, 1).normalize();
       const P = new THREE.Vector3((u - 0.5) * size, (v - 0.5) * size, META.base_mm + h);
       const I = S.collimated ? I0.clone() : P.clone().sub(lp).normalize();
-      const d1 = refractV(I, nrm, 1 / META.ior);
+      const d1 = refractV(I, nrm, 1 / S.ior);
       if (!d1) continue;
       const P2 = P.clone().add(d1.clone().multiplyScalar((0 - P.z) / d1.z));
-      const d2 = refractV(d1, new THREE.Vector3(0, 0, 1), META.ior);
+      const d2 = refractV(d1, new THREE.Vector3(0, 0, 1), S.ior);
       if (!d2 || d2.z >= 0) continue;
       const L = P2.clone().add(d2.clone().multiplyScalar((-S.throw_ - P2.z) / d2.z));
       const start = P.clone().add(I.clone().multiplyScalar(-150));
@@ -438,6 +441,11 @@ function updateHint(){
   const off = Math.abs(S.throw_ - DESIGN_THROW);
   const tilt = Math.hypot(S.lx, S.ly);
   let msg = '';
+  if (S.ior < 1.02) { $('hint').innerHTML =
+    `<span class="warn">n = 1.00 — glass with the same index as air.</span> No refraction happens at either
+     face, so every ray flies straight through and the wall is evenly lit. The picture is gone. That is the
+     proof this is a simulation: the image only exists because rays are being bent.`; return; }
+  if (Math.abs(S.ior - 1.51) > 0.06) msg += `<span class="warn">n = ${S.ior.toFixed(2)}</span> (resin is 1.51) — deflection scales with (n−1), so the image resizes and defocuses. `;
   if (!S.collimated) msg += `<span class="warn">Point source:</span> the image spreads and softens — the lens was solved for parallel light (the sun). `;
   if (off > 25) msg += `<span class="warn">Off design throw</span> (solved for ${DESIGN_THROW} mm) — the caustic defocuses. `;
   if (tilt > 4) msg += `<span class="warn">Light is tilted ${tilt.toFixed(1)}°</span> — the image shifts and smears. `;
@@ -490,6 +498,7 @@ Promise.all([
   bind('lx', 'lx', v => v.toFixed(1) + '°', syncGeometry);
   bind('ly', 'ly', v => v.toFixed(1) + '°', syncGeometry);
   bind('th', 'throw_', v => v.toFixed(0) + ' mm', syncGeometry);
+  bind('ior', 'ior', v => v.toFixed(2), syncGeometry);
   bind('ex', 'exposure', v => v.toFixed(2));
   toggle('tCol', 'collimated', syncGeometry);
   toggle('tSpin', 'spin');
@@ -499,8 +508,9 @@ Promise.all([
     scene.remove(lensGroup); buildLens(); lensGroup.visible = S.showLens;
   });
   $('tReset').addEventListener('click', () => {
-    S.lx = S.ly = 0; S.throw_ = DESIGN_THROW; S.exposure = 1; S.collimated = true; S.spin = false;
+    S.lx = S.ly = 0; S.throw_ = DESIGN_THROW; S.exposure = 1; S.ior = 1.51; S.collimated = true; S.spin = false;
     $('lx').value = 0; $('ly').value = 0; $('th').value = DESIGN_THROW; $('ex').value = 1;
+    $('ior').value = 1.51; $('iorv').textContent = '1.51';
     $('lxv').textContent = '0.0°'; $('lyv').textContent = '0.0°';
     $('thv').textContent = DESIGN_THROW + ' mm'; $('exv').textContent = '1.00';
     $('tCol').classList.add('on'); $('tSpin').classList.remove('on');
