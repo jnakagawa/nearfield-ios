@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nearfield — caustic lens simulator</title>
+<style>
+  :root{ color-scheme: dark; }
+  *{ box-sizing:border-box; margin:0; }
+  html,body{ height:100%; }
+  body{
+    background:#07070b; color:#e9e9f0; overflow:hidden;
+    font:14px/1.5 -apple-system,"Helvetica Neue",Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  #app{ position:fixed; inset:0; }
+  canvas{ display:block; }
+
+  .head{
+    position:absolute; top:0; left:0; right:0; padding:18px 22px 26px;
+    pointer-events:none; z-index:5;
+    background:linear-gradient(#07070bcc, #07070b00);
+  }
+  .head h1{ font-size:17px; font-weight:600; letter-spacing:.02em; }
+  .head p{ color:#9a9aa8; font-size:13px; margin-top:3px; max-width:640px; }
+  .head b{ color:#cfd0da; font-weight:500; }
+
+  .panel{
+    position:absolute; right:18px; top:92px; width:264px; z-index:6;
+    background:#0e0e15e8; border:1px solid #23232e; border-radius:14px;
+    padding:14px 16px 16px; backdrop-filter:blur(8px);
+    max-height:calc(100% - 120px); overflow:auto;
+  }
+  .panel h2{ font-size:11px; letter-spacing:.14em; text-transform:uppercase;
+    color:#7d7d8b; font-weight:600; margin:14px 0 8px; }
+  .panel h2:first-child{ margin-top:0; }
+  .row{ display:flex; flex-direction:column; gap:5px; margin-bottom:11px; }
+  .row label{ font-size:12px; color:#9a9aa8; display:flex; justify-content:space-between; }
+  .row label span{ color:#dcdce6; font-variant-numeric:tabular-nums; }
+  input[type=range]{ width:100%; accent-color:#7fb2ff; }
+  .toggles{ display:flex; flex-wrap:wrap; gap:6px; }
+  .tg{ background:#15151d; border:1px solid #32323d; color:#b7b7c4;
+    padding:6px 10px; border-radius:8px; font-size:12px; cursor:pointer; }
+  .tg.on{ background:#2c4a7a; border-color:#3f6bb0; color:#fff; }
+  .tg:hover{ border-color:#7fb2ff; }
+  .note{ font-size:11.5px; color:#7d7d8b; line-height:1.45; margin-top:10px; }
+  .warn{ color:#ffd27f; }
+  .ok{ color:#9fe0b0; }
+  .legend{
+    position:absolute; left:18px; bottom:16px; z-index:6; font-size:12px; color:#8a8a97;
+    background:#0e0e15cc; border:1px solid #23232e; border-radius:10px; padding:9px 12px;
+  }
+  .legend b{ color:#cfd0da; font-weight:500; }
+  #loading{ position:absolute; inset:0; display:grid; place-items:center; z-index:10;
+    background:#07070b; color:#8a8a97; font-size:13px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="loading">building the lens…</div>
+
+<div class="head">
+  <h1>Nearfield — caustic lens simulator</h1>
+  <p>A clear slab with a subtly warped face. Light refracts through it and lands as an image on the wall.
+     The caustic below is <b>computed live</b> — ~260,000 rays refracted through the real printed surface, not a picture.</p>
+</div>
+
+<div class="panel">
+  <h2>Light</h2>
+  <div class="row"><label>Tilt X <span id="lxv">0.0°</span></label>
+    <input id="lx" type="range" min="-14" max="14" step="0.2" value="0"></div>
+  <div class="row"><label>Tilt Y <span id="lyv">0.0°</span></label>
+    <input id="ly" type="range" min="-14" max="14" step="0.2" value="0"></div>
+  <div class="toggles">
+    <button class="tg on" id="tCol">collimated</button>
+    <button class="tg" id="tSpin">orbit light</button>
+  </div>
+
+  <h2>Geometry</h2>
+  <div class="row"><label>Throw distance <span id="thv">264 mm</span></label>
+    <input id="th" type="range" min="80" max="600" step="2" value="264"></div>
+  <div class="row"><label>Exposure <span id="exv">1.00</span></label>
+    <input id="ex" type="range" min="0.2" max="3" step="0.05" value="1"></div>
+
+  <h2>View</h2>
+  <div class="toggles">
+    <button class="tg on" id="tLens">lens</button>
+    <button class="tg" id="tRays">rays</button>
+    <button class="tg on" id="tRelief">relief ×8</button>
+    <button class="tg" id="tReset">reset</button>
+  </div>
+
+  <div class="note" id="hint"></div>
+</div>
+
+<div class="legend">
+  drag to orbit · scroll to zoom &nbsp;·&nbsp; <b>120 × 120 mm</b> lens, 3.15 mm relief, n = 1.51
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+'use strict';
+/* ===========================================================================
+   Caustic lens simulator.
+   The lens surface is a height field h(x,y) exported from the same solver that
+   produced the printable STL. Every frame we refract a dense grid of rays:
+       air -> shaped top face (Snell)  ->  through the slab  ->  flat bottom
+       (Snell) -> free flight to the wall
+   and additively accumulate where they land. That accumulation IS the caustic.
+   ======================================================================== */
+
+const DESIGN_THROW = 264.0;   // mm the lens was solved for
+let META = null, H = null, HN = 0;     // height field (mm) + resolution
+
+// ---- scene ---------------------------------------------------------------
+const app = document.getElementById('app');
+const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:false });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setClearColor(0x07070b, 1);
+app.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(42, 1, 1, 4000);
+
+// simple orbit (no external controls dependency)
+const orbit = { az: -0.58, el: 0.26, dist: 430, tx: 0, ty: 0, tz: -132 };
+function applyCamera(){
+  const cx = Math.cos(orbit.el) * Math.sin(orbit.az) * orbit.dist;
+  const cy = Math.sin(orbit.el) * orbit.dist;
+  const cz = Math.cos(orbit.el) * Math.cos(orbit.az) * orbit.dist;
+  camera.position.set(orbit.tx + cx, orbit.ty + cy, orbit.tz + cz);
+  camera.lookAt(orbit.tx, orbit.ty, orbit.tz);
+}
+let drag = false, px = 0, py = 0;
+renderer.domElement.addEventListener('pointerdown', e => { drag = true; px = e.clientX; py = e.clientY; });
+addEventListener('pointerup', () => drag = false);
+addEventListener('pointermove', e => {
+  if (!drag) return;
+  orbit.az -= (e.clientX - px) * 0.006;
+  orbit.el = Math.max(-1.2, Math.min(1.2, orbit.el + (e.clientY - py) * 0.005));
+  px = e.clientX; py = e.clientY; applyCamera(); dirty = true;
+});
+renderer.domElement.addEventListener('wheel', e => {
+  e.preventDefault();
+  orbit.dist = Math.max(180, Math.min(1400, orbit.dist * (1 + Math.sign(e.deltaY) * 0.09)));
+  applyCamera(); dirty = true;
+}, { passive:false });
+
+scene.add(new THREE.AmbientLight(0x404058, 1.0));
+const key = new THREE.DirectionalLight(0xdfe6ff, 1.1); key.position.set(120, 200, 260); scene.add(key);
+const rim = new THREE.DirectionalLight(0x6d8cff, 0.5); rim.position.set(-200, 80, -120); scene.add(rim);
+
+// ---- state ---------------------------------------------------------------
+const S = {
+  lx: 0, ly: 0, throw_: DESIGN_THROW, exposure: 1,
+  collimated: true, spin: false, showLens: true, showRays: false, reliefBoost: true,
+};
+let dirty = true, causticDirty = true;
+
+// =========================== load height field ============================
+function decodeHeightmap(img, meta){
+  const N = meta.N;
+  const c = document.createElement('canvas'); c.width = N; c.height = N;
+  const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+  const d = g.getImageData(0, 0, N, N).data;
+  const h = new Float32Array(N * N);
+  for (let j = 0; j < N; j++){
+    for (let i = 0; i < N; i++){
+      const p = ((N - 1 - j) * N + i) * 4;        // flip: texture uv.y=0 is the bottom
+      h[j * N + i] = ((d[p] * 256 + d[p + 1]) / 65535) * meta.relief_mm;
+    }
+  }
+  return h;
+}
+
+// Surface slopes + height in a FLOAT texture. 8-bit normals quantise the
+// refracted direction enough to snap rays onto a visible lattice, so we keep
+// full precision and let the GPU interpolate the slopes smoothly.
+function buildSurfaceTexture(){
+  const N = HN, mmPerCell = META.size_mm / N;
+  const data = new Float32Array(N * N * 4);
+  for (let j = 0; j < N; j++){
+    for (let i = 0; i < N; i++){
+      const i0 = Math.max(0, i - 1), i1 = Math.min(N - 1, i + 1);
+      const j0 = Math.max(0, j - 1), j1 = Math.min(N - 1, j + 1);
+      const hx = (H[j * N + i1] - H[j * N + i0]) / ((i1 - i0) * mmPerCell);
+      const hy = (H[j1 * N + i] - H[j0 * N + i]) / ((j1 - j0) * mmPerCell);
+      const k = (j * N + i) * 4;
+      data[k] = hx; data[k + 1] = hy; data[k + 2] = H[j * N + i]; data[k + 3] = 1;
+    }
+  }
+  const t = new THREE.DataTexture(data, N, N, THREE.RGBAFormat, THREE.FloatType);
+  const linOK = !!renderer.extensions.get('OES_texture_float_linear');
+  t.minFilter = t.magFilter = linOK ? THREE.LinearFilter : THREE.NearestFilter;
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  t.needsUpdate = true;
+  return t;
+}
+
+// ============================ caustic pass ================================
+// Points are positioned entirely in the vertex shader: each vertex is one ray,
+// refracted twice, then written straight to clip space at its landing point.
+const RT_SIZE = 512;
+let causticRT, causticScene, causticCam, causticMat;
+
+function buildCausticPass(surfTex){
+  causticRT = new THREE.WebGLRenderTarget(RT_SIZE, RT_SIZE, {
+    minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+    format: THREE.RGBAFormat, type: THREE.UnsignedByteType, depthBuffer: false,
+  });
+  causticScene = new THREE.Scene();
+  causticCam = new THREE.Camera();
+
+  const RAYS = 1024;                      // 1024^2 = 1,048,576 rays
+  const pos = new Float32Array(RAYS * RAYS * 3);
+  let p = 0;
+  for (let j = 0; j < RAYS; j++)
+    for (let i = 0; i < RAYS; i++){
+      pos[p++] = (i + Math.random()) / RAYS;   // uv.x (jittered: no lattice)
+      pos[p++] = (j + Math.random()) / RAYS;   // uv.y
+      pos[p++] = 0;
+    }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+
+  causticMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uSurf:{ value: surfTex }, uRelief:{ value: 1 }, uSize:{ value: 1 },
+      uBase:{ value: 3 }, uThrow:{ value: DESIGN_THROW }, uIor:{ value: 1.51 },
+      uLightDir:{ value: new THREE.Vector3(0, 0, -1) },
+      uLightPos:{ value: new THREE.Vector3(0, 0, 400) },
+      uCollimated:{ value: 1 }, uWallHalf:{ value: 110 }, uGain:{ value: 1 },
+    },
+    vertexShader: `
+      // textbook Snell: N always faces the incoming ray (dot(I,N) < 0)
+      vec3 refr(vec3 I, vec3 N, float eta){
+        float cosi = -dot(I, N);
+        float k = 1.0 - eta * eta * (1.0 - cosi * cosi);
+        if (k < 0.0) return vec3(0.0);
+        return eta * I + (eta * cosi - sqrt(k)) * N;
+      }
+      uniform sampler2D uSurf;
+      uniform float uRelief, uSize, uBase, uThrow, uIor, uCollimated, uWallHalf;
+      uniform vec3 uLightDir, uLightPos;
+      varying float vOk;
+      void main(){
+        vec2 uv = position.xy;
+        vec4 s = texture2D(uSurf, uv);
+        vec3 nrm = normalize(vec3(-s.r, -s.g, 1.0));   // from true slopes
+        float h = s.b;
+        // entry point in mm, lens centred on origin, optical axis = -Z
+        vec3 P = vec3((uv - 0.5) * uSize, uBase + h);
+        vec3 I = uCollimated > 0.5 ? normalize(uLightDir) : normalize(P - uLightPos);
+        // air -> resin through the shaped face
+        vec3 d1 = refr(I, nrm, 1.0 / uIor);
+        // resin -> air through the flat back face
+        vec3 d2 = refr(normalize(d1), vec3(0.0, 0.0, 1.0), uIor);
+        vOk = (length(d1) < 0.001 || length(d2) < 0.001 || d2.z > -1e-4) ? 0.0 : 1.0;
+        vec3 P2 = P + d1 * ((0.0 - P.z) / d1.z);   // travel to the flat back face
+        vec3 L = P2 + d2 * ((-uThrow - P2.z) / d2.z);
+        gl_Position = vec4(L.xy / uWallHalf, 0.0, 1.0);
+        gl_PointSize = 1.0;
+      }`,
+    fragmentShader: `
+      uniform float uGain;
+      varying float vOk;
+      void main(){
+        if (vOk < 0.5) discard;
+        gl_FragColor = vec4(vec3(uGain), 1.0);
+      }`,
+    blending: THREE.AdditiveBlending, depthTest:false, depthWrite:false, transparent:true,
+  });
+  causticScene.add(new THREE.Points(geo, causticMat));
+}
+
+function renderCaustic(){
+  causticMat.uniforms.uRelief.value = META.relief_mm;
+  causticMat.uniforms.uSize.value = META.size_mm;
+  causticMat.uniforms.uBase.value = META.base_mm;
+  causticMat.uniforms.uIor.value = META.ior;
+  causticMat.uniforms.uThrow.value = S.throw_;
+  causticMat.uniforms.uCollimated.value = S.collimated ? 1 : 0;
+  causticMat.uniforms.uGain.value = 0.020 * S.exposure;
+  causticMat.uniforms.uLightDir.value.copy(lightDir());
+  causticMat.uniforms.uLightPos.value.copy(lightPos());
+  const prev = renderer.getRenderTarget();
+  renderer.setRenderTarget(causticRT);
+  renderer.setClearColor(0x000000, 1); renderer.clear();
+  renderer.render(causticScene, causticCam);
+  renderer.setRenderTarget(prev);
+  renderer.setClearColor(0x07070b, 1);
+}
+
+// light direction (travel direction) from the two tilt angles
+function lightDir(){
+  const ax = THREE.MathUtils.degToRad(S.lx), ay = THREE.MathUtils.degToRad(S.ly);
+  return new THREE.Vector3(Math.sin(ax), Math.sin(ay), -1).normalize();
+}
+function lightPos(){ return lightDir().clone().multiplyScalar(-420); }
+
+// ============================== geometry ==================================
+let lensGroup, wallMesh, rayLines, lightGizmo;
+
+function buildLens(){
+  const N = 256, size = META.size_mm;
+  const geo = new THREE.PlaneBufferGeometry(size, size, N - 1, N - 1);
+  const pos = geo.attributes.position;
+  const boost = S.reliefBoost ? 8 : 1;
+  for (let i = 0; i < pos.count; i++){
+    const u = (pos.getX(i) / size) + 0.5, v = (pos.getY(i) / size) + 0.5;
+    const hi = Math.min(HN - 1, Math.max(0, Math.round(u * (HN - 1))));
+    const hj = Math.min(HN - 1, Math.max(0, Math.round(v * (HN - 1))));
+    pos.setZ(i, META.base_mm + H[hj * HN + hi] * boost);
+  }
+  geo.computeVertexNormals();
+  const mat = new THREE.MeshPhysicalMaterial({
+    color:0xbcd8ff, metalness:0, roughness:0.12, clearcoat:1, clearcoatRoughness:0.06,
+    transparent:true, opacity:0.42, side:THREE.DoubleSide,
+  });
+  const top = new THREE.Mesh(geo, mat);
+
+  const slab = new THREE.Mesh(
+    new THREE.BoxBufferGeometry(size, size, META.base_mm),
+    new THREE.MeshPhysicalMaterial({ color:0xa8c6f0, metalness:0, roughness:0.15,
+      transparent:true, opacity:0.22, clearcoat:1 }));
+  slab.position.z = META.base_mm / 2;
+
+  const edge = new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.BoxBufferGeometry(size, size, META.base_mm)),
+    new THREE.LineBasicMaterial({ color:0x7fb2ff, transparent:true, opacity:0.32 }));
+  edge.position.z = META.base_mm / 2;
+
+  lensGroup = new THREE.Group();
+  lensGroup.add(top, slab, edge);
+  scene.add(lensGroup);
+}
+
+function buildWall(){
+  const W = 150;
+  const mat = new THREE.ShaderMaterial({
+    uniforms:{ uTex:{ value: causticRT.texture }, uExp:{ value: 1 },
+               uWallSize:{ value: 2 * W }, uWallHalf:{ value: 110 } },
+    vertexShader:`varying vec2 vUv; void main(){ vUv=uv;
+      gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader:`
+      uniform sampler2D uTex; uniform float uExp, uWallSize, uWallHalf;
+      varying vec2 vUv;
+      void main(){
+        // the render target covers +/- uWallHalf mm; the wall quad is larger,
+        // so remap so the caustic sits at true physical size in the middle.
+        vec2 uvC = (vUv - 0.5) * (uWallSize / (2.0 * uWallHalf)) + 0.5;
+        float inside = step(0.0, uvC.x) * step(uvC.x, 1.0)
+                     * step(0.0, uvC.y) * step(uvC.y, 1.0);
+        float t = 1.0 / 512.0;
+        float c = (texture2D(uTex, uvC).r * 0.40
+                 + texture2D(uTex, uvC + vec2( t, 0.0)).r * 0.15
+                 + texture2D(uTex, uvC + vec2(-t, 0.0)).r * 0.15
+                 + texture2D(uTex, uvC + vec2(0.0,  t)).r * 0.15
+                 + texture2D(uTex, uvC + vec2(0.0, -t)).r * 0.15) * uExp * inside;
+        c = 1.0 - exp(-c * 2.2);                 // soft tone map
+        vec3 warm = vec3(1.0, 0.72, 0.42);
+        vec3 wall = vec3(0.055, 0.055, 0.07);
+        gl_FragColor = vec4(wall + warm * c, 1.0);
+      }`,
+  });
+  wallMesh = new THREE.Mesh(new THREE.PlaneBufferGeometry(2 * W, 2 * W), mat);
+  scene.add(wallMesh);
+}
+
+function buildLightGizmo(){
+  lightGizmo = new THREE.Group();
+  const bulb = new THREE.Mesh(new THREE.SphereBufferGeometry(7, 20, 16),
+    new THREE.MeshBasicMaterial({ color:0xffd9a0 }));
+  const halo = new THREE.Mesh(new THREE.SphereBufferGeometry(14, 20, 16),
+    new THREE.MeshBasicMaterial({ color:0xffb46a, transparent:true, opacity:0.18 }));
+  lightGizmo.add(bulb, halo);
+  scene.add(lightGizmo);
+}
+
+// CPU ray paths (a sparse subset) so you can see the actual bend
+function buildRays(){
+  const n = 15, size = META.size_mm, pts = [];
+  const I0 = lightDir(), lp = lightPos();
+  for (let j = 0; j < n; j++){
+    for (let i = 0; i < n; i++){
+      const u = (i + 0.5) / n, v = (j + 0.5) / n;
+      const hi = Math.round(u * (HN - 1)), hj = Math.round(v * (HN - 1));
+      const h = H[hj * HN + hi];
+      const mm = size / HN;
+      const i0 = Math.max(0, hi - 1), i1 = Math.min(HN - 1, hi + 1);
+      const j0 = Math.max(0, hj - 1), j1 = Math.min(HN - 1, hj + 1);
+      const hx = (H[hj * HN + i1] - H[hj * HN + i0]) / ((i1 - i0) * mm);
+      const hy = (H[j1 * HN + hi] - H[j0 * HN + hi]) / ((j1 - j0) * mm);
+      const nrm = new THREE.Vector3(-hx, -hy, 1).normalize();
+      const P = new THREE.Vector3((u - 0.5) * size, (v - 0.5) * size, META.base_mm + h);
+      const I = S.collimated ? I0.clone() : P.clone().sub(lp).normalize();
+      const d1 = refractV(I, nrm, 1 / META.ior);
+      if (!d1) continue;
+      const P2 = P.clone().add(d1.clone().multiplyScalar((0 - P.z) / d1.z));
+      const d2 = refractV(d1, new THREE.Vector3(0, 0, 1), META.ior);
+      if (!d2 || d2.z >= 0) continue;
+      const L = P2.clone().add(d2.clone().multiplyScalar((-S.throw_ - P2.z) / d2.z));
+      const start = P.clone().add(I.clone().multiplyScalar(-150));
+      pts.push(start, P, P, P2, P2, L);
+    }
+  }
+  const g = new THREE.BufferGeometry().setFromPoints(pts);
+  const m = new THREE.LineBasicMaterial({ color:0xffc98a, transparent:true, opacity:0.28 });
+  if (rayLines){ scene.remove(rayLines); rayLines.geometry.dispose(); }
+  rayLines = new THREE.LineSegments(g, m);
+  rayLines.visible = S.showRays;
+  scene.add(rayLines);
+}
+function refractV(I, N, eta){
+  const cosi = -I.dot(N);
+  const k = 1 - eta * eta * (1 - cosi * cosi);
+  if (k < 0) return null;
+  return I.clone().multiplyScalar(eta).add(N.clone().multiplyScalar(eta * cosi - Math.sqrt(k))).normalize();
+}
+
+// ================================ UI ======================================
+const $ = id => document.getElementById(id);
+function bind(id, key, fmt, after){
+  const el = $(id), out = $(id + 'v');
+  el.addEventListener('input', () => {
+    S[key] = +el.value; out.textContent = fmt(S[key]);
+    causticDirty = dirty = true; if (after) after(); updateHint();
+  });
+  out.textContent = fmt(S[key]);
+}
+function toggle(id, key, after){
+  $(id).addEventListener('click', () => {
+    S[key] = !S[key]; $(id).classList.toggle('on', S[key]);
+    causticDirty = dirty = true; if (after) after(); updateHint();
+  });
+}
+function updateHint(){
+  const off = Math.abs(S.throw_ - DESIGN_THROW);
+  const tilt = Math.hypot(S.lx, S.ly);
+  let msg = '';
+  if (!S.collimated) msg += `<span class="warn">Point source:</span> the image spreads and softens — the lens was solved for parallel light (the sun). `;
+  if (off > 25) msg += `<span class="warn">Off design throw</span> (solved for ${DESIGN_THROW} mm) — the caustic defocuses. `;
+  if (tilt > 4) msg += `<span class="warn">Light is tilted ${tilt.toFixed(1)}°</span> — the image shifts and smears. `;
+  if (!msg) msg = `<span class="ok">On design:</span> parallel light, square on, ${DESIGN_THROW} mm to the wall. This is what the print should do in sunlight.`;
+  $('hint').innerHTML = msg;
+}
+
+function syncGeometry(){
+  wallMesh.position.z = -S.throw_;
+  lightGizmo.position.copy(lightPos());
+  if (S.showRays) buildRays();
+  rayLines && (rayLines.visible = S.showRays);
+  lensGroup.visible = S.showLens;
+}
+
+// =============================== boot =====================================
+function resize(){
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); dirty = true;
+}
+addEventListener('resize', resize);
+
+let t0 = performance.now();
+function loop(){
+  requestAnimationFrame(loop);
+  if (S.spin){
+    const t = (performance.now() - t0) / 1000;
+    S.lx = Math.sin(t * 0.5) * 9; S.ly = Math.cos(t * 0.37) * 6;
+    $('lx').value = S.lx; $('ly').value = S.ly;
+    $('lxv').textContent = S.lx.toFixed(1) + '°'; $('lyv').textContent = S.ly.toFixed(1) + '°';
+    causticDirty = dirty = true; syncGeometry(); updateHint();
+  }
+  if (causticDirty){ renderCaustic(); causticDirty = false; }
+  if (dirty){
+    wallMesh.material.uniforms.uExp.value = S.exposure;
+    renderer.render(scene, camera); dirty = false;
+  }
+}
+
+Promise.all([
+  fetch('lens.json').then(r => r.json()),
+  new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im);
+    im.onerror = rej; im.src = 'heightmap.png'; }),
+]).then(([meta, img]) => {
+  META = meta; HN = meta.N; H = decodeHeightmap(img, meta);
+  const surf = buildSurfaceTexture();
+  buildCausticPass(surf);
+  buildLens(); buildWall(); buildLightGizmo(); buildRays();
+
+  bind('lx', 'lx', v => v.toFixed(1) + '°', syncGeometry);
+  bind('ly', 'ly', v => v.toFixed(1) + '°', syncGeometry);
+  bind('th', 'throw_', v => v.toFixed(0) + ' mm', syncGeometry);
+  bind('ex', 'exposure', v => v.toFixed(2));
+  toggle('tCol', 'collimated', syncGeometry);
+  toggle('tSpin', 'spin');
+  toggle('tLens', 'showLens', syncGeometry);
+  toggle('tRays', 'showRays', syncGeometry);
+  toggle('tRelief', 'reliefBoost', () => {
+    scene.remove(lensGroup); buildLens(); lensGroup.visible = S.showLens;
+  });
+  $('tReset').addEventListener('click', () => {
+    S.lx = S.ly = 0; S.throw_ = DESIGN_THROW; S.exposure = 1; S.collimated = true; S.spin = false;
+    $('lx').value = 0; $('ly').value = 0; $('th').value = DESIGN_THROW; $('ex').value = 1;
+    $('lxv').textContent = '0.0°'; $('lyv').textContent = '0.0°';
+    $('thv').textContent = DESIGN_THROW + ' mm'; $('exv').textContent = '1.00';
+    $('tCol').classList.add('on'); $('tSpin').classList.remove('on');
+    orbit.az = -0.58; orbit.el = 0.26; orbit.dist = 430;
+    applyCamera(); syncGeometry(); updateHint(); causticDirty = dirty = true;
+  });
+
+  syncGeometry(); updateHint(); applyCamera(); resize();
+  document.getElementById('loading').remove();
+  loop();
+}).catch(err => {
+  document.getElementById('loading').textContent = 'failed to load lens data: ' + err;
+});
+</script>
+</body>
+</html>

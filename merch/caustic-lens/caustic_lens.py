@@ -109,10 +109,10 @@ def solve_transport(target, L, iters, alpha, verbose=True):
 
 # ---- 3) heights ------------------------------------------------------------
 def heights_from_potential(Phi, n, d):
-    # A downward ray on a surface rising in +x bends toward the (-hx,-hy,1) normal,
-    # so it deflects toward -x: landing = X - d(n-1) grad(h). Matching X + grad(Phi)
-    # gives h = -Phi / (d (n-1)).
-    h = -Phi / (d * (n - 1.0))
+    # A slab that is THICKER toward +x is a prism with its base at +x, and a prism
+    # deviates light toward its base: landing = X + d(n-1) grad(h). Matching that to
+    # the transport map X + grad(Phi) gives h = +Phi / (d (n-1)).
+    h = Phi / (d * (n - 1.0))
     h -= h.min()
     return h
 
@@ -173,7 +173,9 @@ def simulate(hfield, L, n, d, base, n_rays=900, res=360, supersample=True):
     P = np.column_stack([RX.ravel(), RY.ravel(), zt])
     t = (0.0 - P[:, 2]) / d1[:, 2]
     P2 = P + t[:, None] * d1
-    flat = np.tile([0, 0, -1.0], (P2.shape[0], 1))
+    # the exit normal must face the incoming (downward) ray, i.e. +Z. Using -Z here
+    # silently negates the transverse deflection and hides a flipped surface.
+    flat = np.tile([0, 0, 1.0], (P2.shape[0], 1))
     d2 = refract(d1, flat, n / 1.0)                          # resin -> air (flat exit)
     # propagate to screen z = -d
     t2 = (-d - P2[:, 2]) / d2[:, 2]
