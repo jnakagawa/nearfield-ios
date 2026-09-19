@@ -20,8 +20,9 @@ Pipeline (`caustic_lens.py`):
 2. **transport** – linearized Monge–Ampère / optimal transport by Poisson relaxation
    (Neumann BC via DCT): find a potential Φ so the map `X → X + ∇Φ` sends uniform
    light to the target.
-3. **heights** – thin-prism relation `h = -Φ / (d·(n-1))` (a downward ray on a
-   surface rising in +x bends toward the −∇h normal → deflects −x).
+3. **heights** – thin-prism relation `h = +Φ / (d·(n-1))`. A slab that is thicker
+   toward +x is a prism with its base at +x, and a prism deviates light toward its
+   base, so `landing = X + d(n-1)∇h`.
 4. **mesh** – shaped top + flat bottom + walls → watertight solid → STL.
 5. **ray-trace test** – *independent* check: shoot parallel rays, do full two-surface
    vector Snell refraction, propagate to the screen, histogram the landings → the
@@ -112,3 +113,33 @@ with a **clear-coat** finish, e.g. Xometry's "SLA Quick Clear". Critical instruc
 the vendor: **clear-coat only, do not sand or flatten the contoured face** — that surface
 *is* the lens, and abrading it destroys the relief. The flat back face may be polished
 normally.
+
+
+## Interactive simulator — `web/`
+
+`web/index.html` is a WebGL simulator: the lens in 3D plus the caustic computed
+**live on the GPU** — ~1,000,000 rays refracted through the real height field each
+frame (`web/heightmap.png`, exported by `export_heightmap.py`, is the same surface
+the STL is built from). Drag to orbit; tilt the light, change the throw distance, or
+switch to a point source to watch the image defocus and smear.
+
+```bash
+cd web && python3 -m http.server 8870   # then open http://127.0.0.1:8870/
+```
+
+## A sign bug worth knowing about
+
+An earlier version had **two errors that cancelled**: `heights_from_potential`
+negated Φ, and `simulate()` used a flat exit normal of `-Z` (which silently negates
+the transverse deflection). The rendered test images looked right, so the bug hid —
+but the **exported surface was inverted**, and a real print would have projected the
+negative (dark figure on a bright square).
+
+The WebGL simulator, written independently with textbook Snell conventions, exposed
+it: it rendered the inverse. Both are fixed, and the offline tracer and the GPU
+simulator now agree. If you ever change the refraction code, **re-run the disk demo**
+— `--demo disk` must produce a bright disk, not a bright ring with a dark centre:
+
+```bash
+python caustic_lens.py --demo disk -N 192 --iters 40 --out out_disk
+```
